@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="th">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="description" content="JK BMS MONITOR by. numchok jantadung" />
+  <meta name="author" content="_jantadung" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ระบบตรวจสอบสถานะ JK BMS เรียลไทม์ (JK BMS MONITOR)</title>
+  <!-- Google Fonts Inter & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" href="style.css?v=1.0.2">
+</head>
+
+<body>
+  <div class="glass-bg"></div>
+
+  <div class="app-container">
+    <!-- Top Navigation Tabs (เหมือนในโปรแกรมจริง) -->
+    <nav class="app-tabs">
+      <button class="tab-btn active" id="tab-realtime">ข้อมูลเรียลไทม์ (Realtime)</button>
+      <button class="tab-btn" id="tab-settings">การตั้งค่า (Settings)</button>
+      <button class="tab-btn" id="tab-control">ควบคุมระบบ (Control)</button>
+      <button class="tab-btn" id="tab-logging">บันทึกข้อมูล (Logging)</button>
+      <button class="tab-btn" id="tab-detaillogs">ประวัติละเอียด (Detail Logs)</button>
+      <button class="tab-btn" id="tab-about">เกี่ยวกับระบบ (About)</button>
+      <button class="tab-btn" id="tab-parallel">การขนานแพ็ค (Parallel)</button>
+      <div class="connection-status-container">
+        <div class="connection-status" id="connection-status">
+          <span class="status-indicator offline"></span>
+          <span class="status-text">กำลังเชื่อมต่อ...</span>
+        </div>
+        <div class="mode-badge" id="mode-badge">โหมดจำลอง</div>
+      </div>
+    </nav>
+
+    <main class="dashboard-layout">
+      <!-- 1. LEFT COLUMN: MAJOR STATUS -->
+      <section class="left-panel">
+        <!-- Gauges Box -->
+        <div class="major-status-container">
+          <div class="status-header">สถานะหลัก (Major Status)</div>
+
+          <div class="gauges-row">
+            <!-- Voltage Gauge -->
+            <div class="gauge-box">
+              <span class="gauge-title">แรงดันไฟ (Voltage)</span>
+              <div class="gauge-wrapper">
+                <svg viewBox="0 0 100 60" class="gauge-svg">
+                  <!-- Arc background -->
+                  <path d="M 15 50 A 35 35 0 0 1 85 50" fill="none" stroke="#0e2f47" stroke-width="7"
+                    stroke-linecap="round" />
+                  <!-- Tick marks -->
+                  <path d="M 15 50 A 35 35 0 0 1 85 50" fill="none" stroke="#1c557c" stroke-width="7"
+                    stroke-dasharray="1 7" stroke-linecap="round" />
+                  <!-- Needle -->
+                  <line id="voltage-needle" x1="50" y1="50" x2="50" y2="18" stroke="var(--color-rose)"
+                    stroke-width="2.5" stroke-linecap="round" transform="rotate(-90 50 50)" />
+                  <circle cx="50" cy="50" r="3.5" fill="#fff" />
+                </svg>
+                <div class="gauge-digital">
+                  <span id="pack-voltage">--.-</span><span class="unit">V</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Power Gauge -->
+            <div class="gauge-box">
+              <span class="gauge-title">กำลังไฟฟ้า (Power)</span>
+              <div class="gauge-wrapper">
+                <svg viewBox="0 0 100 60" class="gauge-svg">
+                  <path d="M 15 50 A 35 35 0 0 1 85 50" fill="none" stroke="#0e2f47" stroke-width="7"
+                    stroke-linecap="round" />
+                  <path d="M 15 50 A 35 35 0 0 1 85 50" fill="none" stroke="#1c557c" stroke-width="7"
+                    stroke-dasharray="1 7" stroke-linecap="round" />
+                  <!-- Needle -->
+                  <line id="current-needle" x1="50" y1="50" x2="50" y2="18" stroke="var(--color-rose)"
+                    stroke-width="2.5" stroke-linecap="round" transform="rotate(0 50 50)" />
+                  <circle cx="50" cy="50" r="3.5" fill="#fff" />
+                </svg>
+                <div class="gauge-digital">
+                  <span id="pack-power-gauge">--.-</span><span class="unit">W</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Capacity display -->
+          <div class="capacity-box">
+            <span class="cap-title font-mono">ความจุ (Capacity)</span>
+            <div class="cap-indicator-container">
+              <div class="battery-icon">
+                <div class="battery-body">
+                  <div class="battery-level-fill" id="battery-fill" style="width: 0%;"></div>
+                </div>
+                <div class="battery-tip"></div>
+              </div>
+              <span class="cap-percent font-mono" id="soc-val">--%</span>
+            </div>
+          </div>
+
+          <!-- Running Time -->
+          <div class="uptime-box">
+            <span class="uptime-label">เวลาเปิดทำงาน (Running Time)</span>
+            <span class="uptime-value font-mono" id="val-uptime">0D0H0M0S</span>
+          </div>
+        </div>
+
+        <!-- Warning list table -->
+        <div class="warning-panel">
+          <div class="status-header">รายการแจ้งเตือน (Warning List)</div>
+          <div class="warning-table-wrapper">
+            <table class="warning-table" id="warning-table">
+              <thead>
+                <tr>
+                  <th style="width: 40px;">ลำดับ</th>
+                  <th>รายละเอียดการแจ้งเตือน</th>
+                </tr>
+              </thead>
+              <tbody id="warning-tbody">
+                <!-- Warnings dynamically appended here -->
+                <tr class="no-warning">
+                  <td colspan="2" style="text-align: center; color: var(--color-emerald);">สถานะปกติ ไม่มีข้อผิดพลาด
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- 2. RIGHT COLUMN: BATTERY STATUS GRID & CELL INFO -->
+      <section class="right-panel">
+        <!-- Battery Status Block -->
+        <div class="battery-status-container">
+          <div class="status-header">สถานะแบตเตอรี่ (Battery Status) <span id="val-userdata"
+              style="font-weight: 500; font-size: 0.72rem; color: var(--text-secondary); margin-left: 8px;"></span>
+          </div>
+
+          <div class="status-grid">
+            <!-- Row 1: Controls -->
+            <div class="status-item">
+              <span class="lbl">ระบบชาร์จ (Charge)</span>
+              <span class="val state-val off" id="status-charge">OFF</span>
+            </div>
+            <div class="status-item">
+              <span class="lbl">การจ่ายไฟ (Discharge)</span>
+              <span class="val state-val off" id="status-discharge">OFF</span>
+            </div>
+            <div class="status-item">
+              <span class="lbl">บาลานเซอร์ (Balancer)</span>
+              <span class="val state-val off" id="status-balance">OFF</span>
+            </div>
+
+            <!-- Row 2 -->
+            <div class="status-item">
+              <span class="lbl">กำลังไฟฟ้า (Power)</span>
+              <span class="val font-mono green" id="pack-power">0.0W</span>
+            </div>
+            <div class="status-item">
+              <span class="lbl">ความจุทั้งหมด (Capacity)</span>
+              <span class="val font-mono green" id="val-ratecap">0.0AH</span>
+            </div>
+            <div class="status-item">
+              <span class="lbl">ความจุคงเหลือ (Remain Cap)</span>
+              <span class="val font-mono green" id="pack-bal-cap">0.0AH</span>
+            </div>
+
+            <!-- Row 3 -->
+            <div class="status-item">
+              <span class="lbl">จำนวนรอบ (Cycle Count)</span>
+              <span class="val font-mono green" id="val-cycles">0</span>
+            </div>
+            <div class="status-item">
+              <span class="lbl">ความจุกรอบชาร์จสะสม</span>
+              <span class="val font-mono green" id="val-cyclecap">0.0AH</span>
+            </div>
+            <div class="status-item">
+              <span class="lbl">แรงดันเฉลี่ยเซลล์</span>
+              <span class="val font-mono green" id="val-ave-volt">0.000V</span>
+            </div>
+
+            <!-- Row 4 -->
+            <div class="status-item">
+              <span class="lbl">ค่าความต่างแรงดัน (Diff)</span>
+              <span class="val font-mono green" id="cell-delta">0.000V</span>
+            </div>
+            <div class="status-item">
+              <span class="lbl">กระแสบาลานซ์ (Balance Curr.)</span>
+              <span class="val font-mono green" id="val-balance-curr">0.000A</span>
+            </div>
+            <div class="status-item">
+              <span class="lbl">อุณหภูมิบอร์ด MOS</span>
+              <span class="val font-mono green" id="temp-ntc0">0.0°C</span>
+            </div>
+
+            <!-- Row 5 -->
+            <div class="status-item">
+              <span class="lbl">อุณหภูมิแบตเตอรี่ 1</span>
+              <span class="val font-mono green" id="temp-ntc1">0.0°C</span>
+            </div>
+            <div class="status-item">
+              <span class="lbl">อุณหภูมิแบตเตอรี่ 2</span>
+              <span class="val font-mono green" id="temp-ntc2">0.0°C</span>
+            </div>
+            <div class="status-item">
+              <span class="lbl">เวลาฉุกเฉิน (Time Emerg.)</span>
+              <span class="val font-mono green" id="val-time-emerg">0</span>
+            </div>
+
+            <!-- Row 6 -->
+            <div class="status-item">
+              <span class="lbl">จำนวนประวัติ (Logs Count)</span>
+              <span class="val font-mono green" id="val-logscount">66192</span>
+            </div>
+            <div class="status-item">
+              <span class="lbl">เวลาก่อนหลับ (Sleep Time)</span>
+              <span class="val font-mono green" id="val-sleeptime">86400S</span>
+            </div>
+            <div class="status-item">
+              <span class="lbl">ซอฟต์แวร์ BMS</span>
+              <span class="val font-mono green" id="val-swversion">--</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Cells Voltage Block -->
+        <div class="cells-voltage-container">
+          <div class="status-header">แรงดันไฟฟ้าแต่ละเซลล์ (Cells Voltage)</div>
+          <div class="cells-wrapper-grid" id="cells-grid">
+            <!-- Dynamic cell values show here. Cells with no value are hidden -->
+            <div class="loading-text">กำลังโหลดข้อมูลเซลล์...</div>
+          </div>
+        </div>
+
+        <!-- Cells Wire Resistance Block -->
+        <div class="cells-resistance-container">
+          <div class="status-header">ความต้านทานขั้วสาย (Cells Wire Resistance)</div>
+          <div class="cells-wrapper-grid" id="resistance-grid">
+            <!-- Dynamic wire resistance values show here. Cells with no value are hidden -->
+            <div class="loading-text">กำลังโหลดข้อมูลความต้านทาน...</div>
+          </div>
+        </div>
+
+        <!-- Settings Box -->
+        <!-- <div class="diagnostics-container">
+          <div class="status-header">การจัดการระบบและเครื่องมือวินิจฉัย</div>
+          <div class="diagnostics-panel">
+            <div class="diag-control">
+              <label for="simulation-switch">โหมดจำลองข้อมูล (Simulator)</label>
+              <div class="toggle-switch">
+                <input type="checkbox" id="simulation-switch" checked>
+                <span class="slider"></span>
+              </div>
+            </div>
+            <div class="diag-control">
+              <label for="port-select">พอร์ตการเชื่อมต่อ BMS</label>
+              <select id="port-select" class="dropdown-select">
+                <option value="COM1">COM1</option>
+              </select>
+            </div>
+            <div class="diag-control">
+              <label for="baud-select">Baud Rate (ความเร็วการสื่อสาร)</label>
+              <select id="baud-select" class="dropdown-select">
+                <option value="115200">115200 (Default UART)</option>
+                <option value="9600">9600 (RS485 Adapter)</option>
+              </select>
+            </div>
+            <div class="diag-injectors" id="diag-container">
+              <span class="inject-lbl">จำลองอาการผิดปกติ:</span>
+              <button class="btn btn-diag" id="btn-fault-overvolt"
+                onclick="injectFault('singleCellOvervolt')">เซลล์สูงเกิน</button>
+              <button class="btn btn-diag" id="btn-fault-undervolt"
+                onclick="injectFault('singleCellUndervolt')">เซลล์ต่ำเกิน</button>
+              <button class="btn btn-diag" id="btn-fault-overcurrent"
+                onclick="injectFault('chargeOvercurrent')">กระแสเกิน</button>
+              <button class="btn btn-diag" id="btn-fault-overtemp" onclick="injectFault('bmsOvertemp')">BMS
+                ร้อนจัด</button>
+            </div>
+          </div>
+        </div> -->
+      </section>
+    </main>
+
+    <!-- LOGGING PANEL (hidden by default, shown when tab-logging is clicked) -->
+    <section class="logging-panel" id="logging-panel" style="display:none;">
+      <div class="log-header-row">
+        <div class="status-header">บันทึกข้อมูลพลังงาน (Energy Logging)</div>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <select id="log-range-select" class="btn-refresh-log" style="outline: none;" onchange="changeLogRange()">
+            <option value="1">ย้อนหลัง 1 วัน</option>
+            <option value="7">ย้อนหลัง 7 วัน</option>
+            <option value="30" selected>ย้อนหลัง 30 วัน</option>
+            <option value="all">ทั้งหมด</option>
+          </select>
+          <button class="btn-refresh-log" id="btn-refresh-log" onclick="loadLoggingData()">⟳ รีเฟรช</button>
+        </div>
+      </div>
+
+      <!-- Session Energy Cards -->
+      <div class="log-session-cards" id="log-session-cards">
+        <div class="log-card charge-card">
+          <span class="log-card-label">⚡ พลังงานชาร์จสะสม (ตามช่วงเวลาที่เลือก)</span>
+          <span class="log-card-value" id="log-session-charge">-- kWh</span>
+        </div>
+        <div class="log-card discharge-card">
+          <span class="log-card-label">🔋 พลังงานจ่ายออกสะสม (ตามช่วงเวลาที่เลือก)</span>
+          <span class="log-card-value" id="log-session-discharge">-- kWh</span>
+        </div>
+        <div class="log-card records-card">
+          <span class="log-card-label">📊 จำนวนรายการทั้งหมดในฐานข้อมูล</span>
+          <span class="log-card-value" id="log-total-records">--</span>
+        </div>
+      </div>
+
+      <!-- Daily Summary Table -->
+      <div class="log-section">
+        <div class="log-section-title">สรุปพลังงานรายวัน (Daily Summary) — ย้อนหลัง <span id="log-days-shown">30</span> วัน</div>
+        <div class="log-table-wrapper">
+          <table class="log-table" id="log-daily-table">
+            <thead>
+              <tr>
+                <th>วันที่</th>
+                <th>ชาร์จ (kWh)</th>
+                <th>จ่ายออก (kWh)</th>
+                <th>SOC เฉลี่ย</th>
+                <th>SOC ต่ำสุด</th>
+                <th>SOC สูงสุด</th>
+                <th>Temp MOS เฉลี่ย</th>
+                <th>Temp MOS สูงสุด</th>
+                <th>รายการ</th>
+              </tr>
+            </thead>
+            <tbody id="log-daily-tbody">
+              <tr><td colspan="9" style="text-align:center; color:var(--text-secondary);">กำลังโหลด...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Recent Raw Logs -->
+      <div class="log-section">
+        <div class="log-section-title" style="display:flex;align-items:center;justify-content:space-between;">
+          <span>ข้อมูล Log ล่าสุด (Raw Logs)</span>
+          <span style="font-size:0.8rem;font-weight:400;color:var(--text-secondary);" id="log-recent-count"></span>
+        </div>
+        <div class="log-table-wrapper">
+          <table class="log-table" id="log-recent-table">
+            <thead>
+              <tr>
+                <th>เวลา</th>
+                <th>SOC%</th>
+                <th>แรงดัน (V)</th>
+                <th>กำลัง (W)</th>
+                <th>กระแส (A)</th>
+                <th>Temp MOS</th>
+                <th>Temp T1</th>
+                <th>สถานะ</th>
+              </tr>
+            </thead>
+            <tbody id="log-recent-tbody">
+              <tr><td colspan="8" style="text-align:center; color:var(--text-secondary);">กำลังโหลด...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+
+    <footer class="app-footer">
+      <p>&copy; 2026 ระบบตรวจสอบสถานะแบตเตอรี่ JK BMS เรียลไทม์ (พัฒนาโดย Numchok Jantadung)</p>
+    </footer>
+  </div>
+
+  <script src="app.js?v=1.0.2"></script>
+</body>
+
+</html>
