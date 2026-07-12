@@ -164,8 +164,11 @@ function getDailySummary(days = 30) {
           d.minSOC   = Math.min(d.minSOC, doc.packSOC);
           d.maxSOC   = Math.max(d.maxSOC, doc.packSOC);
 
-          if (doc.packW > 0.1) d.chargeWh    += doc.energyDeltaWh || 0;
-          else if (doc.packW < -0.1) d.dischargeWh += doc.energyDeltaWh || 0;
+          if (doc.packA > 0.01) {
+            d.chargeWh += doc.energyDeltaWh || 0;
+          } else if (doc.packA < -0.01) {
+            d.dischargeWh += doc.energyDeltaWh || 0;
+          }
 
           if (doc.tempNTC0 !== null) {
             d.tempNTC0Sum  += doc.tempNTC0;
