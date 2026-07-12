@@ -2,4 +2,3 @@ node_modules/
 data/
 .gemini/
 .env
-*.log
