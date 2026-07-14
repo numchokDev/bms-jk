@@ -109,7 +109,7 @@ function queryLogs(from, to, limit = 1000) {
       if (to)   query.timestamp.$lte = to;
     }
     db.find(query)
-      .sort({ timestamp: 1 })
+      .sort({ timestamp: -1 })
       .limit(limit)
       .exec((err, docs) => {
         if (err) reject(err);

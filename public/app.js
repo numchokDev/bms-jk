@@ -694,7 +694,7 @@ async function loadLoggingData() {
       if (logsData.logs.length === 0) {
         recentTbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text-secondary);">ยังไม่มีข้อมูล</td></tr>';
       } else {
-        recentTbody.innerHTML = logsData.logs.slice().reverse().map(log => {
+        recentTbody.innerHTML = logsData.logs.map(log => {
           const timeStr = new Date(log.timestamp).toLocaleTimeString('th-TH', { hour12: false });
           const dateStr = new Date(log.timestamp).toLocaleDateString('th-TH');
           const wColor = log.packW > 0.1 ? 'var(--color-green)' : (log.packW < -0.1 ? 'var(--color-rose)' : 'var(--text-secondary)');
