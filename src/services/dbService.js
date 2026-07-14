@@ -138,39 +138,65 @@ function getDailySummary(days = 30) {
       .exec((err, docs) => {
         if (err) { reject(err); return; }
 
-        // จัดกลุ่มตามวัน (YYYY-MM-DD)
+        // จัดกลุ่มตามวัน (YYYY-MM-DD) ตามเวลาท้องถิ่นไทย (UTC+7)
         const dayMap = {};
+        let prevTimestamp = null;
+
         for (const doc of docs) {
-          const day = doc.timestamp.substring(0, 10); // "2026-07-12"
+          // แปลงเวลา UTC เป็นวันที่ตามเวลาท้องถิ่นประเทศไทย (UTC+7)
+          const dateObj = new Date(doc.timestamp);
+          const localTime = new Date(dateObj.getTime() + (7 * 60 * 60 * 1000));
+          const day = localTime.toISOString().substring(0, 10); // "YYYY-MM-DD"
+
           if (!dayMap[day]) {
             dayMap[day] = {
               date:             day,
               recordCount:      0,
               chargeWh:         0,
               dischargeWh:      0,
-              avgSOC:           0,
               minSOC:           Infinity,
               maxSOC:           -Infinity,
+              socSum:           0,
+              socCount:         0,
               avgTempNTC0:      0,
               maxTempNTC0:      -Infinity,
-              socSum:           0,
               tempNTC0Sum:      0,
               tempNTC0Count:    0
             };
           }
           const d = dayMap[day];
           d.recordCount++;
-          d.socSum  += doc.packSOC;
-          d.minSOC   = Math.min(d.minSOC, doc.packSOC);
-          d.maxSOC   = Math.max(d.maxSOC, doc.packSOC);
 
-          if (doc.packA > 0.01) {
-            d.chargeWh += doc.energyDeltaWh || 0;
-          } else if (doc.packA < -0.01) {
-            d.dischargeWh += doc.energyDeltaWh || 0;
+          // กรองข้อมูล SOC ที่ผิดปกติ (เช่น สูงเกิน 100%)
+          const socVal = doc.packSOC;
+          if (socVal !== undefined && socVal >= 0 && socVal <= 100) {
+            d.socSum += socVal;
+            d.socCount++;
+            d.minSOC = Math.min(d.minSOC, socVal);
+            d.maxSOC = Math.max(d.maxSOC, socVal);
           }
 
-          if (doc.tempNTC0 !== null) {
+          // คำนวณเวลาที่ห่างกันจริงระหว่าง record นี้กับ record ก่อนหน้า
+          let elapsedSeconds = 2; // ค่าเริ่มต้น
+          if (prevTimestamp) {
+            const diffMs = new Date(doc.timestamp) - new Date(prevTimestamp);
+            if (diffMs > 0 && diffMs < 60000) { // ข้ามการคำนวณที่ห่างเกิน 1 นาที (เช่น ช่วงปิดระบบ)
+              elapsedSeconds = diffMs / 1000.0;
+            }
+          }
+          prevTimestamp = doc.timestamp;
+
+          const packA = doc.packA || 0;
+          const packW = Math.abs(doc.packW || 0);
+          const calculatedDeltaWh = (packW * elapsedSeconds) / 3600.0;
+
+          if (packA > 0.01) {
+            d.chargeWh += calculatedDeltaWh;
+          } else if (packA < -0.01) {
+            d.dischargeWh += calculatedDeltaWh;
+          }
+
+          if (doc.tempNTC0 !== null && doc.tempNTC0 !== undefined) {
             d.tempNTC0Sum  += doc.tempNTC0;
             d.tempNTC0Count++;
             d.maxTempNTC0  = Math.max(d.maxTempNTC0, doc.tempNTC0);
@@ -183,7 +209,7 @@ function getDailySummary(days = 30) {
           recordCount:   d.recordCount,
           chargeKWh:     Math.round(d.chargeWh / 10) / 100,     // Wh -> kWh
           dischargeKWh:  Math.round(d.dischargeWh / 10) / 100,
-          avgSOC:        d.recordCount > 0 ? Math.round(d.socSum / d.recordCount) : 0,
+          avgSOC:        d.socCount > 0 ? Math.round(d.socSum / d.socCount) : 0,
           minSOC:        d.minSOC === Infinity ? 0 : d.minSOC,
           maxSOC:        d.maxSOC === -Infinity ? 0 : d.maxSOC,
           avgTempNTC0:   d.tempNTC0Count > 0 ? Math.round((d.tempNTC0Sum / d.tempNTC0Count) * 10) / 10 : null,
