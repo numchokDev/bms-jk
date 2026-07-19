@@ -4,7 +4,7 @@ module.exports = {
   DEFAULT_PORT_PATH: 'COM3',
   DEFAULT_BAUD_RATE: 115200,
   MODBUS_SLAVE_ID: 1,
-  POLL_INTERVAL_MS: 2000,
+  POLL_INTERVAL_MS: 15000,//ตั้งเวลาห
   MODBUS_TIMEOUT_MS: 400,
 
   // Register addresses

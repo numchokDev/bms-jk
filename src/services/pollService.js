@@ -2,6 +2,7 @@ const { state, getCurrentState } = require('../state');
 const { sendModbusRequest, regsToInt32, modbusTemp } = require('./modbus');
 const { broadcast } = require('../controllers/wsController');
 const dbService = require('./dbService');
+const config = require('../config');
 
 async function pollBmsModbus() {
   if (!state.serialConn || !state.serialConn.isOpen) return;
@@ -168,9 +169,9 @@ async function pollBmsModbus() {
 
 function startPollingLoop() {
   stopPollingLoop();
-  console.log('Starting Modbus RTU polling loop every 2 seconds');
+  console.log(`Starting Modbus RTU polling loop every ${config.POLL_INTERVAL_MS / 1000} seconds`);
   pollBmsModbus();
-  state.pollIntervalTimer = setInterval(pollBmsModbus, 2000);
+  state.pollIntervalTimer = setInterval(pollBmsModbus, config.POLL_INTERVAL_MS);
 }
 
 function stopPollingLoop() {
