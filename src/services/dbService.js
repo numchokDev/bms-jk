@@ -44,49 +44,55 @@ function insertLog(data, source) {
   if (!data) return;
 
   const packV = data.packV || 0;
-  const packSOC = data.packSOC || 0;
+  let rawSOC = data.packSOC || 0;
+  if (rawSOC > 100 && rawSOC <= 1000) rawSOC = Math.round(rawSOC / 10);
+  const packSOC = Math.max(0, Math.min(100, Math.round(rawSOC)));
 
   // ข้ามถ้าไม่มีข้อมูลจากอุปกรณ์จริง
   if (packV === 0 && packSOC === 0) return;
 
   const packA = data.packA || 0;
-  let packW = data.packW || 0;
-
-  // กำหนดขั้วของกำลังไฟฟ้า (วัตต์) ตามทิศทางกระแส (ติดลบสำหรับจ่ายไฟ)
-  if (packA < -0.01) {
-    packW = -Math.abs(packW);
-  } else if (packA > 0.01) {
-    packW = Math.abs(packW);
-  } else {
-    packW = 0;
+  const now = Date.now();
+  let elapsedSeconds = POLL_INTERVAL_S;
+  if (lastInsertTimestamp) {
+    const diff = now - lastInsertTimestamp;
+    if (diff >= 0 && diff <= 300000) { // Allow up to 5 minutes gap for accurate accumulation
+      elapsedSeconds = diff / 1000.0;
+    } else if (diff > 300000) {
+      elapsedSeconds = POLL_INTERVAL_S;
+    } else if (diff < 0) {
+      elapsedSeconds = 0;
+    }
   }
+  lastInsertTimestamp = now;
 
-  // พลังงาน (Wh) ในช่วงเวลา 2 วินาที = (W × s) / 3600
-  const deltaWh = Math.abs(packW) * POLL_INTERVAL_S / 3600;
+  // พลังงาน (Wh) คำนวณจาก V * A จะแม่นยำกว่า packW จาก BMS
+  const preciseW = packV * Math.abs(packA);
+  const deltaWh = (preciseW * elapsedSeconds) / 3600.0;
 
-  if (packW > 0.1) {
+  if (packA > 0.05) { // ชาร์จ
     totalChargeWh += deltaWh;
-  } else if (packW < -0.1) {
+  } else if (packA < -0.05) { // จ่ายไฟ
     totalDischargeWh += deltaWh;
   }
 
   const temps = data.tempSensorValues || {};
   const doc = {
-    timestamp:         new Date().toISOString(),
-    source:            source || 'real',
-    packSOC:           packSOC,
-    packV:             packV,
-    packA:             data.packA || 0,
-    packW:             packW,
-    energyDeltaWh:     Math.round(deltaWh * 10000) / 10000,    // พลังงานในรอบนี้ (Wh)
-    energyChargeWh:    Math.round(totalChargeWh * 1000) / 1000, // ชาร์จสะสม (Wh)
+    timestamp: new Date().toISOString(),
+    source: source || 'real',
+    packSOC: packSOC,
+    packV: packV,
+    packA: data.packA || 0,
+    packW: data.packW || 0,
+    energyDeltaWh: Math.round(deltaWh * 10000) / 10000,    // พลังงานในรอบนี้ (Wh)
+    energyChargeWh: Math.round(totalChargeWh * 1000) / 1000, // ชาร์จสะสม (Wh)
     energyDischargeWh: Math.round(totalDischargeWh * 1000) / 1000, // จ่ายสะสม (Wh)
-    tempNTC0:          temps.NTC0 !== undefined ? temps.NTC0 : null, // MOS Temp
-    tempNTC1:          temps.NTC1 !== undefined ? temps.NTC1 : null, // Battery T1
-    tempNTC2:          temps.NTC2 !== undefined ? temps.NTC2 : null, // Battery T2
-    isCharging:        (data.FETStatus && data.FETStatus.charging) || false,
-    isDischarging:     (data.FETStatus && data.FETStatus.discharging) || false,
-    isBalancing:       (data.FETStatus && data.FETStatus.balancing) || false
+    tempNTC0: temps.NTC0 !== undefined ? temps.NTC0 : null, // MOS Temp
+    tempNTC1: temps.NTC1 !== undefined ? temps.NTC1 : null, // Battery T1
+    tempNTC2: temps.NTC2 !== undefined ? temps.NTC2 : null, // Battery T2
+    isCharging: (data.FETStatus && data.FETStatus.charging) || false,
+    isDischarging: (data.FETStatus && data.FETStatus.discharging) || false,
+    isBalancing: (data.FETStatus && data.FETStatus.balancing) || false
   };
 
   db.insert(doc, (err) => {
@@ -106,7 +112,7 @@ function queryLogs(from, to, limit = 1000) {
     if (from || to) {
       query.timestamp = {};
       if (from) query.timestamp.$gte = from;
-      if (to)   query.timestamp.$lte = to;
+      if (to) query.timestamp.$lte = to;
     }
     db.find(query)
       .sort({ timestamp: -1 })
@@ -150,70 +156,81 @@ function getDailySummary(days = 30) {
 
           if (!dayMap[day]) {
             dayMap[day] = {
-              date:             day,
-              recordCount:      0,
-              chargeWh:         0,
-              dischargeWh:      0,
-              minSOC:           Infinity,
-              maxSOC:           -Infinity,
-              socSum:           0,
-              socCount:         0,
-              avgTempNTC0:      0,
-              maxTempNTC0:      -Infinity,
-              tempNTC0Sum:      0,
-              tempNTC0Count:    0
+              date: day,
+              recordCount: 0,
+              chargeWh: 0,
+              dischargeWh: 0,
+              minSOC: Infinity,
+              maxSOC: -Infinity,
+              socSum: 0,
+              socCount: 0,
+              avgTempNTC0: 0,
+              maxTempNTC0: -Infinity,
+              tempNTC0Sum: 0,
+              tempNTC0Count: 0
             };
           }
           const d = dayMap[day];
           d.recordCount++;
 
-          // กรองข้อมูล SOC ที่ผิดปกติ (เช่น สูงเกิน 100%)
-          const socVal = doc.packSOC;
-          if (socVal !== undefined && socVal >= 0 && socVal <= 100) {
+          // Normalize SOC (รองรับค่า raw เช่น 612 -> 61%, 1000 -> 100%)
+          let socVal = doc.packSOC;
+          if (socVal !== undefined && socVal !== null) {
+            if (socVal > 100 && socVal <= 1000) socVal = Math.round(socVal / 10);
+            if (socVal > 100) socVal = 100;
+            if (socVal < 0) socVal = 0;
             d.socSum += socVal;
             d.socCount++;
             d.minSOC = Math.min(d.minSOC, socVal);
             d.maxSOC = Math.max(d.maxSOC, socVal);
           }
 
-          // คำนวณเวลาที่ห่างกันจริงระหว่าง record นี้กับ record ก่อนหน้า
-          let elapsedSeconds = 2; // ค่าเริ่มต้น
+          // คำนวณเวลาที่ห่างกันจริงระหว่าง record นี้กับ record ก่อนหน้า (default: POLL_INTERVAL_S = 15s)
+          let elapsedSeconds = POLL_INTERVAL_S;
           if (prevTimestamp) {
             const diffMs = new Date(doc.timestamp) - new Date(prevTimestamp);
-            if (diffMs > 0 && diffMs < 60000) { // ข้ามการคำนวณที่ห่างเกิน 1 นาที (เช่น ช่วงปิดระบบ)
+            if (diffMs >= 0 && diffMs <= 300000) { // รองรับ gap สูงสุด 5 นาที
               elapsedSeconds = diffMs / 1000.0;
+            } else if (diffMs > 300000) {
+              elapsedSeconds = POLL_INTERVAL_S;
+            } else if (diffMs < 0) {
+              elapsedSeconds = 0;
             }
           }
           prevTimestamp = doc.timestamp;
 
           const packA = doc.packA || 0;
-          const packW = Math.abs(doc.packW || 0);
-          const calculatedDeltaWh = (packW * elapsedSeconds) / 3600.0;
+          const packV = doc.packV || 0;
+          const preciseW = packV * Math.abs(packA);
+          
+          const calculatedDeltaWh = (preciseW * elapsedSeconds) / 3600.0;
 
-          if (packA > 0.01) {
+          if (packA > 0.05) {
             d.chargeWh += calculatedDeltaWh;
-          } else if (packA < -0.01) {
+          } else if (packA < -0.05) {
+            d.dischargeWh += calculatedDeltaWh;
+          } else if (packA < -0.01 || (doc.packW || 0) < -0.1 || doc.isDischarging) {
             d.dischargeWh += calculatedDeltaWh;
           }
 
           if (doc.tempNTC0 !== null && doc.tempNTC0 !== undefined) {
-            d.tempNTC0Sum  += doc.tempNTC0;
+            d.tempNTC0Sum += doc.tempNTC0;
             d.tempNTC0Count++;
-            d.maxTempNTC0  = Math.max(d.maxTempNTC0, doc.tempNTC0);
+            d.maxTempNTC0 = Math.max(d.maxTempNTC0, doc.tempNTC0);
           }
         }
 
         // คำนวณค่าเฉลี่ย
         const summary = Object.values(dayMap).map(d => ({
-          date:          d.date,
-          recordCount:   d.recordCount,
-          chargeKWh:     Math.round(d.chargeWh / 10) / 100,     // Wh -> kWh
-          dischargeKWh:  Math.round(d.dischargeWh / 10) / 100,
-          avgSOC:        d.socCount > 0 ? Math.round(d.socSum / d.socCount) : 0,
-          minSOC:        d.minSOC === Infinity ? 0 : d.minSOC,
-          maxSOC:        d.maxSOC === -Infinity ? 0 : d.maxSOC,
-          avgTempNTC0:   d.tempNTC0Count > 0 ? Math.round((d.tempNTC0Sum / d.tempNTC0Count) * 10) / 10 : null,
-          maxTempNTC0:   d.maxTempNTC0 === -Infinity ? null : d.maxTempNTC0
+          date: d.date,
+          recordCount: d.recordCount,
+          chargeKWh: Math.round((d.chargeWh / 1000) * 1000) / 1000,     // Wh -> kWh (3 decimal places)
+          dischargeKWh: Math.round((d.dischargeWh / 1000) * 1000) / 1000,
+          avgSOC: d.socCount > 0 ? Math.round(d.socSum / d.socCount) : 0,
+          minSOC: d.minSOC === Infinity ? 0 : d.minSOC,
+          maxSOC: d.maxSOC === -Infinity ? 0 : d.maxSOC,
+          avgTempNTC0: d.tempNTC0Count > 0 ? Math.round((d.tempNTC0Sum / d.tempNTC0Count) * 10) / 10 : null,
+          maxTempNTC0: d.maxTempNTC0 === -Infinity ? null : d.maxTempNTC0
         }));
 
         resolve(summary);
@@ -238,10 +255,10 @@ function getCount() {
  */
 function getSessionEnergy() {
   return {
-    chargeWh:    Math.round(totalChargeWh * 1000) / 1000,
+    chargeWh: Math.round(totalChargeWh * 1000) / 1000,
     dischargeWh: Math.round(totalDischargeWh * 1000) / 1000,
-    chargeKWh:   Math.round(totalChargeWh / 10) / 100,
-    dischargeKWh:Math.round(totalDischargeWh / 10) / 100
+    chargeKWh: Math.round(totalChargeWh / 10) / 100,
+    dischargeKWh: Math.round(totalDischargeWh / 10) / 100
   };
 }
 

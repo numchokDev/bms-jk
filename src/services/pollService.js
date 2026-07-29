@@ -11,6 +11,9 @@ async function pollBmsModbus() {
     // 1. Read cell voltages: 0x1200 x 20 regs
     const cellRegs = await sendModbusRequest(0x1200, 20);
 
+    // 1.5. Read wire resistances: 0x1218 x 20 regs
+    const resRegs = await sendModbusRequest(0x1218, 20);
+
     // 2. Read pack stats: 0x1240 x 24 regs
     const statRegs = await sendModbusRequest(0x1240, 24);
 
@@ -36,7 +39,11 @@ async function pollBmsModbus() {
         if (mV > 2000 && mV < 5000) { // valid cell voltage range 2V-5V
           cellData[`cell${i}mV`] = mV;
           cellData[`cell${i}V`] = mV / 1000.0;
-          if (statRegs && statRegs.length > (5 + i)) {
+          if (resRegs && resRegs.length > i) {
+            const rawR = resRegs[i];
+            cellData[`cell${i}R`] = rawR / 1000.0; // convert to Ohms (if rawR is mOhm)
+          } else if (statRegs && statRegs.length > (5 + i)) {
+            // Fallback for some BMS versions
             const rawR = statRegs[5 + i];
             cellData[`cell${i}R`] = rawR / 1000.0;
           }

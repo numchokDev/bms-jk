@@ -91,14 +91,14 @@ function connectWebSocket() {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const wsUrl = `${protocol}//${window.location.host}`;
   console.log(`Connecting to WebSocket: ${wsUrl}`);
-  
+
   ws = new WebSocket(wsUrl);
-  
+
   ws.onopen = () => {
     console.log("WebSocket connected.");
     updateConnectionUI(true, "เชื่อมต่อเซิร์ฟเวอร์เรียบร้อย");
   };
-  
+
   ws.onmessage = (event) => {
     try {
       const state = JSON.parse(event.data);
@@ -111,13 +111,13 @@ function connectWebSocket() {
       console.error("Error handling ws message:", e);
     }
   };
-  
+
   ws.onclose = () => {
     console.log("WebSocket disconnected. Reconnecting in 3s...");
     updateConnectionUI(false, "ขาดการเชื่อมต่อกับเซิร์ฟเวอร์");
     setTimeout(connectWebSocket, 3000);
   };
-  
+
   ws.onerror = (err) => {
     console.error("WebSocket error:", err);
     updateConnectionUI(false, "เกิดข้อผิดพลาดในการเชื่อมต่อ");
@@ -128,7 +128,7 @@ function updateConnectionUI(online, text) {
   if (!elConnectionStatus) return;
   const dot = elConnectionStatus.querySelector('.status-indicator');
   const txt = elConnectionStatus.querySelector('.status-text');
-  
+
   if (dot && txt) {
     if (online) {
       dot.className = 'status-indicator online';
@@ -143,23 +143,23 @@ function updateConnectionUI(online, text) {
 // Format Running Time as 236D20H32M52S
 function updateRunningTimeDisplay(totalMinutes) {
   if (uptimeInterval) clearInterval(uptimeInterval);
-  
+
   runningSecondsOffset = 0;
-  
+
   const renderTime = () => {
     const totalSeconds = totalMinutes * 60 + runningSecondsOffset;
-    
+
     const days = Math.floor(totalSeconds / (24 * 3600));
     const hours = Math.floor((totalSeconds % (24 * 3600)) / 3600);
     const minutes = Math.floor((totalSeconds % 3600) / 60);
     const seconds = totalSeconds % 60;
-    
+
     if (elValUptime) {
       elValUptime.textContent = `${days}D${hours}H${minutes}M${seconds}S`;
     }
     runningSecondsOffset++;
   };
-  
+
   renderTime();
   uptimeInterval = setInterval(renderTime, 1000);
 }
@@ -167,7 +167,7 @@ function updateRunningTimeDisplay(totalMinutes) {
 // Update dashboard with real BMS data
 function updateDashboard(state) {
   const data = state.data;
-  
+
   // 1. Connection Header & settings
   if (elModeBadge) {
     if (state.simulation) {
@@ -191,10 +191,35 @@ function updateDashboard(state) {
     elBaudSelect.value = String(state.baudRate);
   }
 
-  if (!data) return;
+  if (!data || !state.connected) {
+    if (elSocVal) elSocVal.textContent = `--%`;
+    if (elBatteryFill) elBatteryFill.style.width = `0%`;
+    if (elVoltageNeedle) elVoltageNeedle.setAttribute('transform', `rotate(-90 50 50)`);
+    if (elCurrentNeedle) elCurrentNeedle.setAttribute('transform', `rotate(-90 50 50)`);
+    if (elPackVoltage) elPackVoltage.textContent = '--';
+    if (elPackPowerGauge) elPackPowerGauge.textContent = '--';
+    if (elPackPower) elPackPower.textContent = '-- W';
+    if (elPackBalCap) elPackBalCap.textContent = '-- AH';
+    if (elFetActionLabel) {
+      elFetActionLabel.textContent = 'OFFLINE';
+      elFetActionLabel.style.color = 'var(--text-secondary)';
+    }
+    if (elCurrentWrapper) elCurrentWrapper.className = 'metric-value';
+    if (elTempNtc0) elTempNtc0.textContent = '--°C';
+    if (elTempNtc1) elTempNtc1.textContent = '--°C';
+    if (elTempNtc2) elTempNtc2.textContent = '--°C';
+    updateFetBox(elFetCharging, false);
+    updateFetBox(elFetDischarging, false);
+    updateFetBox(elFetBalancing, false);
+    const cellGrid = document.getElementById('cells-grid');
+    if (cellGrid) cellGrid.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:var(--text-secondary);padding:16px;">ไม่สามารถเชื่อมต่อกับ BMS ได้</div>';
+    return;
+  }
 
-  // 2. SoC & Battery Indicator
-  const soc = data.packSOC || 0;
+  // 2. SoC & Battery Indicator (Normalized & Clamped 0-100%)
+  let rawSoc = data.packSOC !== undefined ? data.packSOC : 0;
+  if (rawSoc > 100 && rawSoc <= 1000) rawSoc = Math.round(rawSoc / 10);
+  const soc = Math.max(0, Math.min(100, Math.round(rawSoc)));
   if (elSocVal) elSocVal.textContent = `${soc}%`;
   if (elBatteryFill) {
     elBatteryFill.style.width = `${soc}%`;
@@ -228,7 +253,7 @@ function updateDashboard(state) {
     const power = data.packW !== undefined ? data.packW : (voltage * current);
     elPackPowerGauge.textContent = power.toFixed(1);
   }
-  
+
   if (elFetActionLabel) {
     if (current > 0.1) {
       elFetActionLabel.textContent = 'CHARGING';
@@ -263,7 +288,7 @@ function updateDashboard(state) {
   if (elValRatecap) elValRatecap.textContent = `${(data.packRateCap || 0).toFixed(1)}AH`;
   if (elValCyclecap) elValCyclecap.textContent = `${(data.packCycleCap || 0).toFixed(1)}AH`;
   if (elValCycles) elValCycles.textContent = data.packNumberCycles !== undefined ? data.packNumberCycles : '0';
-  
+
   // Uptime ticker
   updateRunningTimeDisplay(data.bmsOnMinutes || 0);
 
@@ -286,7 +311,7 @@ function updateDashboard(state) {
 
   // 7. Cells grid voltages & resistances (ONLY show active ones)
   const cells = data.cellData || {};
-  
+
   // Find cell indices with valid values (checks up to 32 cells)
   const activeCellIndices = [];
   for (let i = 0; i < 32; i++) {
@@ -325,7 +350,7 @@ function updateDashboard(state) {
     if (elCellsGrid && elResistanceGrid) {
       const currentCellsInDOM = elCellsGrid.querySelectorAll('.cell-slot').length;
       let rebuildGrid = (currentCellsInDOM !== activeCellsCount);
-      
+
       if (!rebuildGrid) {
         for (let idx = 0; idx < activeCellsCount; idx++) {
           const cellId = activeCellIndices[idx];
@@ -339,7 +364,7 @@ function updateDashboard(state) {
       if (rebuildGrid) {
         elCellsGrid.innerHTML = '';
         elResistanceGrid.innerHTML = '';
-        
+
         activeCellIndices.forEach(i => {
           // Voltage slot
           const voltSlot = document.createElement('div');
@@ -370,14 +395,14 @@ function updateDashboard(state) {
         const voltSlot = document.getElementById(`cell-volt-slot-${i}`);
         const valEl = document.getElementById(`cell-v-val-${i}`);
         const resEl = document.getElementById(`cell-r-val-${i}`);
-        
+
         if (v !== undefined && voltSlot && valEl) {
           valEl.textContent = `${v.toFixed(3)} V`;
-          
+
           // Highlights min/max
           voltSlot.className = 'cell-slot';
           valEl.className = 'cell-volts-text';
-          
+
           if (i === minIdx) {
             voltSlot.classList.add('min');
             valEl.classList.add('rose');
@@ -390,7 +415,7 @@ function updateDashboard(state) {
         }
 
         if (r !== undefined && resEl) {
-          resEl.textContent = `${r.toFixed(3)} mΩ`;
+          resEl.textContent = `${r.toFixed(3)} Ω`;
         }
       });
 
@@ -476,7 +501,7 @@ function updateFetBox(valEl, active) {
 
 function updateDiagButtons(alarms) {
   activeFaults = alarms;
-  
+
   const map = {
     'singleCellOvervolt': 'btn-fault-overvolt',
     'singleCellUndervolt': 'btn-fault-undervolt',
@@ -566,13 +591,13 @@ if (tabButtons.length > 0 && dashboardLayout && leftPanel && rightPanel) {
       btn.classList.add('active');
 
       const tabId = btn.id;
-      
+
       // Reset default grid styles
       dashboardLayout.style.display = 'grid';
       dashboardLayout.style.gridTemplateColumns = '360px 1fr';
       leftPanel.style.display = 'flex';
       rightPanel.style.display = 'flex';
-      
+
       // Reset all panels display
       if (elGauges) elGauges.style.display = 'flex';
       if (elWarnings) elWarnings.style.display = 'flex';
@@ -588,7 +613,7 @@ if (tabButtons.length > 0 && dashboardLayout && leftPanel && rightPanel) {
         if (elStatus) elStatus.style.display = 'none';
         if (elCells) elCells.style.display = 'none';
         if (elResistance) elResistance.style.display = 'none';
-      } 
+      }
       else if (tabId === 'tab-control') {
         dashboardLayout.style.display = 'block';
         leftPanel.style.display = 'none';
