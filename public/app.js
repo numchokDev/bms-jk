@@ -382,7 +382,7 @@ function updateDashboard(state) {
           resSlot.id = `cell-res-slot-${i}`;
           resSlot.innerHTML = `
             <span class="cell-idx">${String(i + 1).padStart(2, '0')}</span>
-            <span class="cell-res-text green" id="cell-r-val-${i}">0.000 Ω</span>
+            <span class="cell-res-text green" id="cell-r-val-${i}">0.000 mΩ</span>
           `;
           elResistanceGrid.appendChild(resSlot);
         });
@@ -415,7 +415,7 @@ function updateDashboard(state) {
         }
 
         if (r !== undefined && resEl) {
-          resEl.textContent = `${r.toFixed(3)} Ω`;
+          resEl.textContent = `${r.toFixed(3)} mΩ`;
         }
       });
 

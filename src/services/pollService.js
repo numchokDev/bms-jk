@@ -4,27 +4,35 @@ const { broadcast } = require('../controllers/wsController');
 const dbService = require('./dbService');
 const config = require('../config');
 
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
 async function pollBmsModbus() {
   if (!state.serialConn || !state.serialConn.isOpen) return;
 
   try {
     // 1. Read cell voltages: 0x1200 x 20 regs
     const cellRegs = await sendModbusRequest(0x1200, 20);
+    await delay(25);
 
     // 1.5. Read wire resistances: 0x1218 x 20 regs
     const resRegs = await sendModbusRequest(0x1218, 20);
+    await delay(25);
 
     // 2. Read pack stats: 0x1240 x 24 regs
     const statRegs = await sendModbusRequest(0x1240, 24);
+    await delay(25);
 
     // 3. Read real-time data: 0x1280 x 20 regs
     const rtRegs1 = await sendModbusRequest(0x1280, 20);
+    await delay(25);
 
     // 4. Real-time data: 0x1290 x 20 regs
     const rtRegs2 = await sendModbusRequest(0x1290, 20);
+    await delay(25);
 
     // 5. Status block: 0x12A0 x 20 regs
     const statusRegs = await sendModbusRequest(0x12A0, 20);
+    await delay(25);
 
     // 6. Status block 2: 0x12B0 x 20 regs
     const statusRegs2 = await sendModbusRequest(0x12B0, 20);
@@ -39,14 +47,15 @@ async function pollBmsModbus() {
         if (mV > 2000 && mV < 5000) { // valid cell voltage range 2V-5V
           cellData[`cell${i}mV`] = mV;
           cellData[`cell${i}V`] = mV / 1000.0;
-          if (resRegs && resRegs.length > i) {
-            const rawR = resRegs[i];
-            cellData[`cell${i}R`] = rawR / 1000.0; // convert to Ohms (if rawR is mOhm)
-          } else if (statRegs && statRegs.length > (5 + i)) {
-            // Fallback for some BMS versions
-            const rawR = statRegs[5 + i];
-            cellData[`cell${i}R`] = rawR / 1000.0;
+          // Primary: statRegs[5+i] = register 0x1245+i (per register map)
+          // Fallback: resRegs[i] from 0x1218 block
+          let rawR = 0;
+          if (statRegs && statRegs.length > (5 + i) && statRegs[5 + i] > 0) {
+            rawR = statRegs[5 + i];
+          } else if (resRegs && resRegs.length > i && resRegs[i] > 0) {
+            rawR = resRegs[i];
           }
+          cellData[`cell${i}R`] = rawR / 1000.0; // rawR / 1000 -> mΩ
         }
       }
     }
@@ -68,7 +77,7 @@ async function pollBmsModbus() {
     }
 
     // ---- Temperatures (NTC0, NTC1, NTC2) ----
-    let tempNTC0 = 0, tempNTC1 = 0, tempNTC2 = 0;
+    let tempNTC0 = null, tempNTC1 = null, tempNTC2 = null;
     if (rtRegs1) {
       tempNTC0 = modbusTemp(rtRegs1[14]);
       tempNTC1 = modbusTemp(rtRegs1[15]);

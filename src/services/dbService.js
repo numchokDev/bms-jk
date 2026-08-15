@@ -21,6 +21,7 @@ db.ensureIndex({ fieldName: 'timestamp' });
 let totalChargeWh = 0;    // พลังงานชาร์จสะสม (Wh)
 let totalDischargeWh = 0; // พลังงานจ่ายไฟสะสม (Wh)
 const POLL_INTERVAL_S = 15; // รอบ polling ทุก 15 วินาที
+let lastInsertTimestamp = null; // เวลาที่มีการบันทึก log ครั้งล่าสุด
 
 // โหลดค่าพลังงานสะสมล่าสุดจากฐานข้อมูลเพื่อไม่ให้ค่ารีเซ็ตเป็น 0 ตอนเริ่มเซิร์ฟเวอร์ใหม่
 db.find({})
