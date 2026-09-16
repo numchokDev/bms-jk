@@ -803,7 +803,7 @@ const cellColors = [
 ];
 
 function initAnalyticsUI() {
-  // Render 16 Cell Toggle Chips + 1 Diff Chip
+  // Render 16 Cell Toggle Chips + System Metrics Chips
   const chipsGrid = document.getElementById('cell-chips-grid');
   if (chipsGrid) {
     chipsGrid.innerHTML = '';
@@ -818,15 +818,24 @@ function initAnalyticsUI() {
       chipsGrid.appendChild(chip);
     }
 
-    // 17th Chip: Cell Diff toggle
-    const diffChip = document.createElement('div');
-    diffChip.className = 'cell-chip active';
-    diffChip.dataset.cellIdx = 16;
-    diffChip.style.setProperty('--chip-color', '#ffea00');
-    diffChip.style.setProperty('--chip-shadow', 'rgba(255, 234, 0, 0.4)');
-    diffChip.innerHTML = `<span class="chip-color-dot" style="background:#ffea00;"></span><span>⚡ Cell Diff</span>`;
-    diffChip.addEventListener('click', () => toggleCellVisibility(16));
-    chipsGrid.appendChild(diffChip);
+    // System Metrics Chips (16: Diff, 17: SOC, 18: Pack V, 19: Current)
+    const metricsConfig = [
+      { idx: 16, label: '⚡ Cell Diff', color: '#ffea00' },
+      { idx: 17, label: '🔋 Battery SOC (%)', color: '#00ff88' },
+      { idx: 18, label: '⚡ Total Pack Volt', color: '#3a86ff' },
+      { idx: 19, label: '🔌 Current (A)', color: '#ff2a6d' }
+    ];
+
+    metricsConfig.forEach(m => {
+      const chip = document.createElement('div');
+      chip.className = 'cell-chip active';
+      chip.dataset.cellIdx = m.idx;
+      chip.style.setProperty('--chip-color', m.color);
+      chip.style.setProperty('--chip-shadow', m.color + '40');
+      chip.innerHTML = `<span class="chip-color-dot" style="background:${m.color};"></span><span>${m.label}</span>`;
+      chip.addEventListener('click', () => toggleCellVisibility(m.idx));
+      chipsGrid.appendChild(chip);
+    });
   }
 
   // Range Selector Buttons
@@ -845,11 +854,13 @@ function initAnalyticsUI() {
   const btnNone = document.getElementById('btn-deselect-all');
   const btnMinMax = document.getElementById('btn-select-minmax');
   const btnC1C4 = document.getElementById('btn-select-c1c4');
+  const btnPack = document.getElementById('btn-select-pack');
 
   if (btnAll) btnAll.addEventListener('click', () => setAllCellsVisibility(true));
   if (btnNone) btnNone.addEventListener('click', () => setAllCellsVisibility(false));
   if (btnMinMax) btnMinMax.addEventListener('click', selectMinMaxCellsOnly);
-  if (btnC1C4) btnC1C4.addEventListener('click', () => setSelectedCellsOnly([0, 3])); // Cell 1 (idx 0) & Cell 4 (idx 3)
+  if (btnC1C4) btnC1C4.addEventListener('click', () => setSelectedCellsOnly([0, 3])); // Cell 1 & Cell 4
+  if (btnPack) btnPack.addEventListener('click', () => setSelectedCellsOnly([17, 18, 19])); // Pack SOC, Pack V, Current A
 }
 
 function initAnalyticsChart() {
@@ -858,7 +869,7 @@ function initAnalyticsChart() {
 
   const ctx = canvas.getContext('2d');
 
-  // Build 16 cell datasets + 1 Diff dataset
+  // Build 16 cell datasets
   const datasets = [];
   for (let i = 0; i < 16; i++) {
     datasets.push({
@@ -874,7 +885,7 @@ function initAnalyticsChart() {
     });
   }
 
-  // 17th dataset: Cell Diff curve mapped to right Y-axis (y1)
+  // 17th: Cell Diff curve (y1)
   datasets.push({
     label: '⚡ Cell Diff (ความต่าง)',
     data: [],
@@ -886,6 +897,51 @@ function initAnalyticsChart() {
     pointHoverRadius: 6,
     tension: 0.2,
     yAxisID: 'y1',
+    hidden: false
+  });
+
+  // 18th: Pack SOC % curve (y2)
+  datasets.push({
+    label: '🔋 Battery SOC (%)',
+    data: [],
+    borderColor: '#00ff88',
+    backgroundColor: 'rgba(0, 255, 136, 0.08)',
+    borderWidth: 2.5,
+    borderDash: [2, 2],
+    pointRadius: 0,
+    pointHoverRadius: 6,
+    tension: 0.25,
+    yAxisID: 'y2',
+    hidden: false
+  });
+
+  // 19th: Total Pack Voltage V curve (y3)
+  datasets.push({
+    label: '⚡ Total Pack Volt (V)',
+    data: [],
+    borderColor: '#3a86ff',
+    backgroundColor: 'rgba(58, 134, 255, 0.08)',
+    borderWidth: 2.5,
+    borderDash: [6, 3],
+    pointRadius: 0,
+    pointHoverRadius: 6,
+    tension: 0.25,
+    yAxisID: 'y3',
+    hidden: false
+  });
+
+  // 20th: Current A curve (y4)
+  datasets.push({
+    label: '🔌 Current (A)',
+    data: [],
+    borderColor: '#ff2a6d',
+    backgroundColor: 'rgba(255, 42, 109, 0.08)',
+    borderWidth: 2,
+    borderDash: [3, 3],
+    pointRadius: 0,
+    pointHoverRadius: 6,
+    tension: 0.25,
+    yAxisID: 'y4',
     hidden: false
   });
 
@@ -916,25 +972,46 @@ function initAnalyticsChart() {
             label: function(context) {
               const val = context.parsed.y;
               if (val == null) return ` ${context.dataset.label}: N/A`;
+              if (context.datasetIndex === 17) {
+                return ` 🔋 Pack SOC: ${Math.round(val)}%`;
+              } else if (context.datasetIndex === 18) {
+                return ` ⚡ Pack Voltage: ${val.toFixed(2)} V`;
+              } else if (context.datasetIndex === 19) {
+                const status = val > 0.1 ? '⚡ชาร์จ' : (val < -0.1 ? '🔋จ่ายไฟ' : '⏸STANDBY');
+                return ` 🔌 Current: ${val > 0 ? '+' : ''}${val.toFixed(2)} A (${status})`;
+              }
               return ` ${context.dataset.label}: ${val.toFixed(3)} V`;
             },
             footer: function(tooltipItems) {
               if (!tooltipItems || tooltipItems.length === 0) return '';
               let minV = Infinity, maxV = -Infinity;
               let minName = '', maxName = '';
+              let socVal = null, packVVal = null, currVal = null;
+
               tooltipItems.forEach(item => {
                 if (item.datasetIndex < 16 && item.parsed.y != null) {
                   const v = item.parsed.y;
                   if (v < minV) { minV = v; minName = item.dataset.label; }
                   if (v > maxV) { maxV = v; maxName = item.dataset.label; }
+                } else if (item.datasetIndex === 17) {
+                  socVal = item.parsed.y;
+                } else if (item.datasetIndex === 18) {
+                  packVVal = item.parsed.y;
+                } else if (item.datasetIndex === 19) {
+                  currVal = item.parsed.y;
                 }
               });
 
+              let text = '\n─────────────────────────────';
+              if (socVal != null || packVVal != null || currVal != null) {
+                const status = currVal > 0.1 ? '⚡ชาร์จ' : (currVal < -0.1 ? '🔋จ่ายไฟ' : 'STANDBY');
+                text += `\n🔋 SOC: ${socVal != null ? Math.round(socVal) + '%' : '--'} | Pack V: ${packVVal != null ? packVVal.toFixed(2) + 'V' : '--'} | Current: ${currVal != null ? (currVal > 0 ? '+' : '') + currVal.toFixed(2) + 'A (' + status + ')' : '--'}`;
+              }
               if (minV !== Infinity && maxV !== -Infinity) {
                 const diff = Math.round((maxV - minV) * 1000) / 1000;
-                return `\n⚡ ค่า Diff ณ จุดนี้: ${diff.toFixed(3)} V (${maxName} - ${minName})`;
+                text += `\n⚡ ค่า Diff ณ จุดนี้: ${diff.toFixed(3)} V (${maxName} - ${minName})`;
               }
-              return '';
+              return text;
             }
           }
         }
@@ -963,6 +1040,36 @@ function initAnalyticsChart() {
           },
           suggestedMin: 0.00,
           suggestedMax: 0.15
+        },
+        y2: {
+          position: 'right',
+          grid: { drawOnChartArea: false },
+          ticks: {
+            color: '#00ff88',
+            callback: function(value) { return value + '%'; }
+          },
+          min: 0,
+          max: 100
+        },
+        y3: {
+          position: 'left',
+          grid: { drawOnChartArea: false },
+          ticks: {
+            color: '#3a86ff',
+            callback: function(value) { return value.toFixed(1) + ' V'; }
+          },
+          suggestedMin: 40,
+          suggestedMax: 60
+        },
+        y4: {
+          position: 'right',
+          grid: { drawOnChartArea: false },
+          ticks: {
+            color: '#ff2a6d',
+            callback: function(value) { return value.toFixed(1) + ' A'; }
+          },
+          suggestedMin: -100,
+          suggestedMax: 100
         }
       }
     }
@@ -994,9 +1101,13 @@ async function loadAnalyticsData(range = '24h') {
       }
     });
 
-    // Populate datasets for 16 cells + Diff
+    // Populate datasets for 16 cells + Diff + SOC + PackV + Current
     const cellDataArrays = Array.from({ length: 16 }, () => []);
     const diffArray = [];
+    const socArray = [];
+    const packVArray = [];
+    const currentArray = [];
+
     let overallMin = Infinity, overallMax = -Infinity;
     let maxDiff = -Infinity;
 
@@ -1032,6 +1143,10 @@ async function loadAnalyticsData(range = '24h') {
       const validDiff = (dVal != null && dVal >= 0 && dVal < 3.0) ? dVal : null;
       diffArray.push(validDiff);
       if (validDiff != null && validDiff > maxDiff) maxDiff = validDiff;
+
+      socArray.push(log.packSOC != null ? log.packSOC : null);
+      packVArray.push(log.packV != null && log.packV > 10 ? log.packV : null);
+      currentArray.push(log.packA != null ? log.packA : null);
     });
 
     // Update Chart.js data
@@ -1045,6 +1160,9 @@ async function loadAnalyticsData(range = '24h') {
         analyticsChart.data.datasets[i].data = cellDataArrays[i];
       }
       analyticsChart.data.datasets[16].data = diffArray;
+      analyticsChart.data.datasets[17].data = socArray;
+      analyticsChart.data.datasets[18].data = packVArray;
+      analyticsChart.data.datasets[19].data = currentArray;
 
       // Auto adjust Y-axis scale based on data
       if (overallMin !== Infinity && overallMax !== -Infinity) {
