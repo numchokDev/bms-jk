@@ -685,11 +685,19 @@ async function loadLoggingData() {
     const tbody = document.getElementById('log-daily-tbody');
     if (tbody) {
       if (!data.daily || data.daily.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text-secondary);">ยังไม่มีข้อมูลในฐานข้อมูล</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="12" style="text-align:center;color:var(--text-secondary);">ยังไม่มีข้อมูลในฐานข้อมูล</td></tr>';
       } else {
         tbody.innerHTML = data.daily.slice().reverse().map(row => {
           const chargeColor = row.chargeKWh > 0 ? 'var(--color-green)' : 'var(--text-secondary)';
           const dischargeColor = row.dischargeKWh > 0 ? 'var(--color-rose)' : 'var(--text-secondary)';
+          // Cell voltage diff color coding
+          const diffVal = row.cellVoltDiffMax;
+          let diffColor = 'var(--color-green)';
+          if (diffVal != null && diffVal > 0.100) {
+            diffColor = 'var(--color-rose)';
+          } else if (diffVal != null && diffVal > 0.050) {
+            diffColor = 'var(--color-amber)';
+          }
           return `<tr>
             <td class="font-mono">${row.date}</td>
             <td style="color:${chargeColor};font-weight:600;">${row.chargeKWh.toFixed(3)}</td>
@@ -697,6 +705,9 @@ async function loadLoggingData() {
             <td>${row.avgSOC}%</td>
             <td>${row.minSOC}%</td>
             <td>${row.maxSOC}%</td>
+            <td class="font-mono" style="color:var(--color-cyan);">${row.cellVoltMin != null ? row.cellVoltMin.toFixed(3) + ' V' + (row.cellVoltMinIdx != null ? ' (เซลล์ ' + (row.cellVoltMinIdx + 1) + ')' : '') : 'N/A'}</td>
+            <td class="font-mono" style="color:var(--color-cyan);">${row.cellVoltMax != null ? row.cellVoltMax.toFixed(3) + ' V' + (row.cellVoltMaxIdx != null ? ' (เซลล์ ' + (row.cellVoltMaxIdx + 1) + ')' : '') : 'N/A'}</td>
+            <td class="font-mono" style="color:${diffColor};font-weight:600;">${row.cellVoltDiffMax != null ? row.cellVoltDiffMax.toFixed(3) + ' V' : 'N/A'}</td>
             <td>${row.avgTempNTC0 !== null ? row.avgTempNTC0 + '°C' : 'N/A'}</td>
             <td>${row.maxTempNTC0 !== null ? row.maxTempNTC0 + '°C' : 'N/A'}</td>
             <td class="font-mono">${row.recordCount.toLocaleString()}</td>
@@ -717,7 +728,7 @@ async function loadLoggingData() {
 
     if (recentTbody && logsData.logs) {
       if (logsData.logs.length === 0) {
-        recentTbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text-secondary);">ยังไม่มีข้อมูล</td></tr>';
+        recentTbody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:var(--text-secondary);">ยังไม่มีข้อมูล</td></tr>';
       } else {
         recentTbody.innerHTML = logsData.logs.map(log => {
           const timeStr = new Date(log.timestamp).toLocaleTimeString('th-TH', { hour12: false });
@@ -726,12 +737,23 @@ async function loadLoggingData() {
           const currentVal = log.packA || 0;
           const statusText = currentVal > 0.1 ? '⚡ชาร์จ' : (currentVal < -0.1 ? '🔋จ่ายไฟ' : '⏸STANDBY');
           const statusColor = currentVal > 0.1 ? 'var(--color-green)' : (currentVal < -0.1 ? 'var(--color-rose)' : 'var(--text-secondary)');
+          // Cell diff color coding
+          const logDiff = log.cellVoltDiff;
+          let logDiffColor = 'var(--color-green)';
+          if (logDiff !== null && logDiff !== undefined && logDiff > 0.100) {
+            logDiffColor = 'var(--color-rose)';
+          } else if (logDiff !== null && logDiff !== undefined && logDiff > 0.050) {
+            logDiffColor = 'var(--color-amber)';
+          }
           return `<tr>
             <td class="font-mono" style="font-size:0.78rem;">${dateStr} ${timeStr}</td>
             <td>${log.packSOC}%</td>
             <td class="font-mono">${(log.packV || 0).toFixed(2)}</td>
             <td class="font-mono" style="color:${wColor};">${(log.packW || 0).toFixed(1)}</td>
             <td class="font-mono">${(log.packA || 0).toFixed(2)}</td>
+            <td class="font-mono" style="color:var(--color-cyan);">${log.cellVoltMin != null ? log.cellVoltMin.toFixed(3) + ' V' + (log.cellVoltMinIdx != null ? ' (เซลล์ ' + (log.cellVoltMinIdx + 1) + ')' : '') : '--'}</td>
+            <td class="font-mono" style="color:var(--color-cyan);">${log.cellVoltMax != null ? log.cellVoltMax.toFixed(3) + ' V' + (log.cellVoltMaxIdx != null ? ' (เซลล์ ' + (log.cellVoltMaxIdx + 1) + ')' : '') : '--'}</td>
+            <td class="font-mono" style="color:${logDiffColor};font-weight:600;">${log.cellVoltDiff != null ? log.cellVoltDiff.toFixed(3) + ' V' : '--'}</td>
             <td>${log.tempNTC0 !== null ? log.tempNTC0 + '°C' : '--'}</td>
             <td>${log.tempNTC1 !== null ? log.tempNTC1 + '°C' : '--'}</td>
             <td style="color:${statusColor};font-size:0.8rem;">${statusText}</td>
@@ -742,7 +764,7 @@ async function loadLoggingData() {
   } catch (err) {
     console.error('[Logging] Failed to load data:', err);
     const tbody = document.getElementById('log-daily-tbody');
-    if (tbody) tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;color:var(--color-rose);">เกิดข้อผิดพลาด: ${err.message}</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="12" style="text-align:center;color:var(--color-rose);">เกิดข้อผิดพลาด: ${err.message}</td></tr>`;
   }
 }
 

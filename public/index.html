@@ -13,7 +13,7 @@
   <link
     href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
     rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1.0.3">
+  <link rel="stylesheet" href="style.css?v=1.1.1">
 </head>
 
 <body>
@@ -331,6 +331,9 @@
                 <th>SOC เฉลี่ย</th>
                 <th>SOC ต่ำสุด</th>
                 <th>SOC สูงสุด</th>
+                <th>Cell Min (V)</th>
+                <th>Cell Max (V)</th>
+                <th>Diff Max (V)</th>
                 <th>Temp MOS เฉลี่ย</th>
                 <th>Temp MOS สูงสุด</th>
                 <th>รายการ</th>
@@ -338,7 +341,7 @@
             </thead>
             <tbody id="log-daily-tbody">
               <tr>
-                <td colspan="9" style="text-align:center; color:var(--text-secondary);">กำลังโหลด...</td>
+                <td colspan="12" style="text-align:center; color:var(--text-secondary);">กำลังโหลด...</td>
               </tr>
             </tbody>
           </table>
@@ -360,6 +363,9 @@
                 <th>แรงดัน (V)</th>
                 <th>กำลัง (W)</th>
                 <th>กระแส (A)</th>
+                <th>Cell Min (V)</th>
+                <th>Cell Max (V)</th>
+                <th>Diff (V)</th>
                 <th>Temp MOS</th>
                 <th>Temp T1</th>
                 <th>สถานะ</th>
@@ -367,7 +373,7 @@
             </thead>
             <tbody id="log-recent-tbody">
               <tr>
-                <td colspan="8" style="text-align:center; color:var(--text-secondary);">กำลังโหลด...</td>
+                <td colspan="11" style="text-align:center; color:var(--text-secondary);">กำลังโหลด...</td>
               </tr>
             </tbody>
           </table>
@@ -381,7 +387,7 @@
     </footer>
   </div>
 
-  <script src="app.js?v=1.0.3"></script>
+  <script src="app.js?v=1.1.2"></script>
 </body>
 
 </html>

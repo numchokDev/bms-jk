@@ -37,6 +37,18 @@ db.find({})
     }
   });
 
+// ล้างข้อมูล cell voltage ที่ผิดพลาดจาก bug เก่า (เช่น > 10V)
+db.update(
+  { $or: [{ cellVoltMax: { $gt: 10 } }, { cellVoltMin: { $gt: 10 } }, { cellVoltDiff: { $gt: 10 } }] },
+  { $unset: { cellVoltMin: true, cellVoltMax: true, cellVoltDiff: true, cellVoltMinIdx: true, cellVoltMaxIdx: true } },
+  { multi: true },
+  (err, numUpdated) => {
+    if (!err && numUpdated > 0) {
+      console.log(`[DB] Cleaned up ${numUpdated} corrupted cell voltage records from database.`);
+    }
+  }
+);
+
 /**
  * บันทึกข้อมูล BMS 1 record
  * ข้ามถ้าไม่มีข้อมูลจริง (packV = 0 และ packSOC = 0)
@@ -77,6 +89,34 @@ function insertLog(data, source) {
     totalDischargeWh += deltaWh;
   }
 
+  // คำนวณ cell voltage min/max/diff จาก cellData
+  const cellData = data.cellData || {};
+  let cellVoltMin = null;
+  let cellVoltMax = null;
+  let cellVoltDiff = null;
+  let cellVoltMinIdx = null;
+  let cellVoltMaxIdx = null;
+  const cellKeys = Object.keys(cellData).filter(k => /^cell\d+V$/.test(k));
+  if (cellKeys.length > 0) {
+    let minV = Infinity, maxV = -Infinity;
+    let minI = -1, maxI = -1;
+    cellKeys.forEach(k => {
+      const v = cellData[k];
+      const idx = parseInt(k.replace('cell', '').replace('V', ''));
+      if (v > 0) {
+        if (v < minV) { minV = v; minI = idx; }
+        if (v > maxV) { maxV = v; maxI = idx; }
+      }
+    });
+    if (minV !== Infinity && maxV !== -Infinity) {
+      cellVoltMin = Math.round(minV * 1000) / 1000;
+      cellVoltMax = Math.round(maxV * 1000) / 1000;
+      cellVoltDiff = Math.round((maxV - minV) * 1000) / 1000;
+      cellVoltMinIdx = minI;
+      cellVoltMaxIdx = maxI;
+    }
+  }
+
   const temps = data.tempSensorValues || {};
   const doc = {
     timestamp: new Date().toISOString(),
@@ -88,6 +128,11 @@ function insertLog(data, source) {
     energyDeltaWh: Math.round(deltaWh * 10000) / 10000,    // พลังงานในรอบนี้ (Wh)
     energyChargeWh: Math.round(totalChargeWh * 1000) / 1000, // ชาร์จสะสม (Wh)
     energyDischargeWh: Math.round(totalDischargeWh * 1000) / 1000, // จ่ายสะสม (Wh)
+    cellVoltMin: cellVoltMin,       // แรงดันเซลล์ต่ำสุด (V)
+    cellVoltMax: cellVoltMax,       // แรงดันเซลล์สูงสุด (V)
+    cellVoltDiff: cellVoltDiff,     // ค่าความต่างแรงดัน (V)
+    cellVoltMinIdx: cellVoltMinIdx, // เซลล์ที่มีแรงดันต่ำสุด
+    cellVoltMaxIdx: cellVoltMaxIdx, // เซลล์ที่มีแรงดันสูงสุด
     tempNTC0: temps.NTC0 !== undefined ? temps.NTC0 : null, // MOS Temp
     tempNTC1: temps.NTC1 !== undefined ? temps.NTC1 : null, // Battery T1
     tempNTC2: temps.NTC2 !== undefined ? temps.NTC2 : null, // Battery T2
@@ -168,7 +213,12 @@ function getDailySummary(days = 30) {
               avgTempNTC0: 0,
               maxTempNTC0: -Infinity,
               tempNTC0Sum: 0,
-              tempNTC0Count: 0
+              tempNTC0Count: 0,
+              cellVoltMin: Infinity,      // แรงดันเซลล์ต่ำสุดของวัน
+              cellVoltMax: -Infinity,     // แรงดันเซลล์สูงสุดของวัน
+              cellVoltMinIdx: null,       // เซลล์ที่มีแรงดันต่ำสุด
+              cellVoltMaxIdx: null,       // เซลล์ที่มีแรงดันสูงสุด
+              cellVoltDiffMax: -Infinity  // ค่า diff สูงสุดของวัน
             };
           }
           const d = dayMap[day];
@@ -219,6 +269,30 @@ function getDailySummary(days = 30) {
             d.tempNTC0Count++;
             d.maxTempNTC0 = Math.max(d.maxTempNTC0, doc.tempNTC0);
           }
+
+          // Cell Voltage Min/Max/Diff tracking (เฉพาะค่าในช่วงที่ถูกต้อง 0.5V - 6.0V)
+          const isCellVoltValid = (v) => typeof v === 'number' && !isNaN(v) && v > 0.5 && v < 6.0;
+
+          if (isCellVoltValid(doc.cellVoltMin)) {
+            if (doc.cellVoltMin < d.cellVoltMin) {
+              d.cellVoltMin = doc.cellVoltMin;
+              d.cellVoltMinIdx = doc.cellVoltMinIdx != null ? doc.cellVoltMinIdx : null;
+            }
+          }
+          if (isCellVoltValid(doc.cellVoltMax)) {
+            if (doc.cellVoltMax > d.cellVoltMax) {
+              d.cellVoltMax = doc.cellVoltMax;
+              d.cellVoltMaxIdx = doc.cellVoltMaxIdx != null ? doc.cellVoltMaxIdx : null;
+            }
+          }
+          if (isCellVoltValid(doc.cellVoltMin) && isCellVoltValid(doc.cellVoltMax)) {
+            const diff = Math.round((doc.cellVoltMax - doc.cellVoltMin) * 1000) / 1000;
+            if (diff >= 0 && diff < 3.0) {
+              d.cellVoltDiffMax = Math.max(d.cellVoltDiffMax, diff);
+            }
+          } else if (typeof doc.cellVoltDiff === 'number' && doc.cellVoltDiff >= 0 && doc.cellVoltDiff < 3.0) {
+            d.cellVoltDiffMax = Math.max(d.cellVoltDiffMax, doc.cellVoltDiff);
+          }
         }
 
         // คำนวณค่าเฉลี่ย
@@ -231,7 +305,12 @@ function getDailySummary(days = 30) {
           minSOC: d.minSOC === Infinity ? 0 : d.minSOC,
           maxSOC: d.maxSOC === -Infinity ? 0 : d.maxSOC,
           avgTempNTC0: d.tempNTC0Count > 0 ? Math.round((d.tempNTC0Sum / d.tempNTC0Count) * 10) / 10 : null,
-          maxTempNTC0: d.maxTempNTC0 === -Infinity ? null : d.maxTempNTC0
+          maxTempNTC0: d.maxTempNTC0 === -Infinity ? null : d.maxTempNTC0,
+          cellVoltMin: d.cellVoltMin === Infinity ? null : d.cellVoltMin,
+          cellVoltMax: d.cellVoltMax === -Infinity ? null : d.cellVoltMax,
+          cellVoltMinIdx: d.cellVoltMinIdx,
+          cellVoltMaxIdx: d.cellVoltMaxIdx,
+          cellVoltDiffMax: d.cellVoltDiffMax === -Infinity ? null : d.cellVoltDiffMax
         }));
 
         resolve(summary);
