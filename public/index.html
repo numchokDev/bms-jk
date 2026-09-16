@@ -13,7 +13,8 @@
   <link
     href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
     rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1.1.1">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link rel="stylesheet" href="style.css?v=1.2.2">
 </head>
 
 <body>
@@ -26,6 +27,7 @@
       <!-- <button class="tab-btn" id="tab-settings">การตั้งค่า (Settings)</button>
       <button class="tab-btn" id="tab-control">ควบคุมระบบ (Control)</button> -->
       <button class="tab-btn" id="tab-logging">บันทึกข้อมูล (Logging)</button>
+      <button class="tab-btn" id="tab-analytics">กราฟย้อนหลัง (Analytics)</button>
       <!-- <button class="tab-btn" id="tab-detaillogs">ประวัติละเอียด (Detail Logs)</button>
       <button class="tab-btn" id="tab-about">เกี่ยวกับระบบ (About)</button> -->
       <button class="tab-btn" id="tab-parallel">การขนานแพ็ค (Parallel)</button>
@@ -381,13 +383,64 @@
       </div>
     </section>
 
+    <!-- 4. TAB 4: HISTORICAL CHARTS & ANALYTICS -->
+    <section id="tab-content-analytics" class="tab-content" style="display: none;">
+      <div class="analytics-header">
+        <div class="analytics-title-group">
+          <h2 class="analytics-title">📊 วิเคราะห์แรงดันเซลล์ย้อนหลัง (Historical Cell Voltage Analytics)</h2>
+          <p class="analytics-subtitle">ติดตามและเปรียบเทียบพฤติกรรมแรงดันไฟฟ้าของเซลล์ทั้ง 16 เซลล์ย้อนหลัง เพื่อวิเคราะห์สถานะและหาเซลล์ที่ดริฟท์</p>
+        </div>
+        
+        <!-- Time Range Selector -->
+        <div class="time-range-container">
+          <span class="range-label">ช่วงเวลา:</span>
+          <div class="range-btn-group">
+            <button class="range-btn" data-range="3h">3 ชม.</button>
+            <button class="range-btn active" data-range="24h">24 ชม.</button>
+            <button class="range-btn" data-range="7d">7 วัน</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Cell Filter & Quick Selection Toolbar -->
+      <div class="analytics-toolbar">
+        <div class="toolbar-title-row">
+          <span class="toolbar-title">เลือกเปิด/ปิดเซลล์ที่ต้องการโฟกัส (Cell Focus Selector)</span>
+          <div class="quick-select-btns">
+            <button class="quick-btn" id="btn-select-all">เลือกทั้งหมด (All)</button>
+            <button class="quick-btn" id="btn-deselect-all">ล้างทั้งหมด (None)</button>
+            <button class="quick-btn accent" id="btn-select-minmax">เฉพาะ Min/Max</button>
+            <button class="quick-btn accent" id="btn-select-c1c4">เฉพาะ Cell 1 & Cell 4</button>
+          </div>
+        </div>
+        
+        <div class="cell-chips-grid" id="cell-chips-grid">
+          <!-- 16 Cell Toggle Chips will be injected by JavaScript -->
+        </div>
+      </div>
+
+      <!-- Main Line Chart Card -->
+      <div class="chart-card-wrapper">
+        <div class="chart-header">
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+            <span>กราฟแนวโน้มแรงดันไฟฟ้า 16 เซลล์ (Voltage Trends)</span>
+            <span class="diff-live-badge" id="chart-diff-badge">⚡ Diff ความต่างสูงสุด: <strong id="chart-max-diff-val">-- V</strong></span>
+          </div>
+          <span class="chart-legend-hint">💡 เอาเมาส์ชี้บนกราฟเพื่อดูค่า Diff ในจุดนั้นๆ</span>
+        </div>
+        <div class="chart-canvas-container">
+          <canvas id="analytics-chart"></canvas>
+        </div>
+      </div>
+    </section>
+
 
     <footer class="app-footer">
       <p>&copy; 2026 ระบบตรวจสอบสถานะแบตเตอรี่ JK BMS เรียลไทม์ (พัฒนาโดย Numchok Jantadung)</p>
     </footer>
   </div>
 
-  <script src="app.js?v=1.1.2"></script>
+  <script src="app.js?v=1.2.2"></script>
 </body>
 
 </html>

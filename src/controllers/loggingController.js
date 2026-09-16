@@ -69,4 +69,23 @@ router.get('/session', (req, res) => {
   res.json(db.getSessionEnergy());
 });
 
+/**
+ * GET /api/logs/analytics
+ * ดึงข้อมูล log สำหรับแสดงกราฟ Line Chart ย้อนหลัง
+ * Query params: range=3h|24h|7d (default: 24h)
+ */
+router.get('/analytics', async (req, res) => {
+  try {
+    const range = req.query.range || '24h';
+    const logs = await db.getAnalyticsLogs(range);
+    res.json({
+      range,
+      count: logs.length,
+      logs
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

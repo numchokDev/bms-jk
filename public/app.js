@@ -581,6 +581,7 @@ const elCells = document.querySelector('.cells-voltage-container');
 const elResistance = document.querySelector('.cells-resistance-container');
 const elDiagnostics = document.querySelector('.diagnostics-container');
 const elLoggingPanel = document.getElementById('logging-panel');
+const elAnalyticsPanel = document.getElementById('tab-content-analytics');
 
 if (tabButtons.length > 0 && dashboardLayout && leftPanel && rightPanel) {
   tabButtons.forEach(btn => {
@@ -606,6 +607,7 @@ if (tabButtons.length > 0 && dashboardLayout && leftPanel && rightPanel) {
       if (elResistance) elResistance.style.display = 'block';
       if (elDiagnostics) elDiagnostics.style.display = 'block';
       if (elLoggingPanel) elLoggingPanel.style.display = 'none';
+      if (elAnalyticsPanel) elAnalyticsPanel.style.display = 'none';
 
       if (tabId === 'tab-settings') {
         dashboardLayout.style.display = 'block';
@@ -625,6 +627,21 @@ if (tabButtons.length > 0 && dashboardLayout && leftPanel && rightPanel) {
         dashboardLayout.style.display = 'none';
         if (elLoggingPanel) elLoggingPanel.style.display = 'block';
         loadLoggingData();
+      }
+      else if (tabId === 'tab-analytics') {
+        // Analytics Tab: ซ่อน dashboard แสดง analytics panel แทน
+        dashboardLayout.style.display = 'none';
+        if (elLoggingPanel) elLoggingPanel.style.display = 'none';
+        if (elAnalyticsPanel) {
+          elAnalyticsPanel.style.display = 'block';
+          if (!analyticsChart) {
+            initAnalyticsChart();
+          }
+          requestAnimationFrame(() => {
+            if (analyticsChart) analyticsChart.resize();
+            loadAnalyticsData(currentAnalyticsRange);
+          });
+        }
       }
       else if (tabId === 'tab-detaillogs') {
         if (elGauges) elGauges.style.display = 'none';
@@ -772,8 +789,385 @@ function changeLogRange() {
   loadLoggingData();
 }
 
+// ============================================================
+// HISTORICAL CHARTS & ANALYTICS MODULE
+// ============================================================
+let analyticsChart = null;
+let currentAnalyticsRange = '24h';
+let analyticsData = [];
+
+// 16 curated high-contrast vibrant colors for cells
+const cellColors = [
+  '#00e5ff', '#00ff88', '#ffea00', '#ff2a6d', '#05d9e8', '#ff9f1c', '#9b5de5', '#f15bb5',
+  '#00bbf9', '#00f5d4', '#fee440', '#e63946', '#8338ec', '#3a86ff', '#fb5607', '#ff006e'
+];
+
+function initAnalyticsUI() {
+  // Render 16 Cell Toggle Chips + 1 Diff Chip
+  const chipsGrid = document.getElementById('cell-chips-grid');
+  if (chipsGrid) {
+    chipsGrid.innerHTML = '';
+    for (let i = 0; i < 16; i++) {
+      const chip = document.createElement('div');
+      chip.className = 'cell-chip active';
+      chip.dataset.cellIdx = i;
+      chip.style.setProperty('--chip-color', cellColors[i]);
+      chip.style.setProperty('--chip-shadow', cellColors[i] + '40');
+      chip.innerHTML = `<span class="chip-color-dot"></span><span>Cell ${i + 1}</span>`;
+      chip.addEventListener('click', () => toggleCellVisibility(i));
+      chipsGrid.appendChild(chip);
+    }
+
+    // 17th Chip: Cell Diff toggle
+    const diffChip = document.createElement('div');
+    diffChip.className = 'cell-chip active';
+    diffChip.dataset.cellIdx = 16;
+    diffChip.style.setProperty('--chip-color', '#ffea00');
+    diffChip.style.setProperty('--chip-shadow', 'rgba(255, 234, 0, 0.4)');
+    diffChip.innerHTML = `<span class="chip-color-dot" style="background:#ffea00;"></span><span>⚡ Cell Diff</span>`;
+    diffChip.addEventListener('click', () => toggleCellVisibility(16));
+    chipsGrid.appendChild(diffChip);
+  }
+
+  // Range Selector Buttons
+  const rangeBtns = document.querySelectorAll('.range-btn-group .range-btn');
+  rangeBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      rangeBtns.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentAnalyticsRange = btn.dataset.range || '24h';
+      loadAnalyticsData(currentAnalyticsRange);
+    });
+  });
+
+  // Quick Action Buttons
+  const btnAll = document.getElementById('btn-select-all');
+  const btnNone = document.getElementById('btn-deselect-all');
+  const btnMinMax = document.getElementById('btn-select-minmax');
+  const btnC1C4 = document.getElementById('btn-select-c1c4');
+
+  if (btnAll) btnAll.addEventListener('click', () => setAllCellsVisibility(true));
+  if (btnNone) btnNone.addEventListener('click', () => setAllCellsVisibility(false));
+  if (btnMinMax) btnMinMax.addEventListener('click', selectMinMaxCellsOnly);
+  if (btnC1C4) btnC1C4.addEventListener('click', () => setSelectedCellsOnly([0, 3])); // Cell 1 (idx 0) & Cell 4 (idx 3)
+}
+
+function initAnalyticsChart() {
+  const canvas = document.getElementById('analytics-chart');
+  if (!canvas || typeof Chart === 'undefined') return;
+
+  const ctx = canvas.getContext('2d');
+
+  // Build 16 cell datasets + 1 Diff dataset
+  const datasets = [];
+  for (let i = 0; i < 16; i++) {
+    datasets.push({
+      label: `Cell ${i + 1}`,
+      data: [],
+      borderColor: cellColors[i],
+      backgroundColor: cellColors[i] + '15',
+      borderWidth: 2,
+      pointRadius: 0,
+      pointHoverRadius: 5,
+      tension: 0.25,
+      hidden: false
+    });
+  }
+
+  // 17th dataset: Cell Diff curve mapped to right Y-axis (y1)
+  datasets.push({
+    label: '⚡ Cell Diff (ความต่าง)',
+    data: [],
+    borderColor: '#ffea00',
+    backgroundColor: 'rgba(255, 234, 0, 0.08)',
+    borderWidth: 2,
+    borderDash: [4, 4],
+    pointRadius: 0,
+    pointHoverRadius: 6,
+    tension: 0.2,
+    yAxisID: 'y1',
+    hidden: false
+  });
+
+  analyticsChart = new Chart(ctx, {
+    type: 'line',
+    data: { labels: [], datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: {
+        mode: 'index',
+        intersect: false
+      },
+      plugins: {
+        legend: {
+          display: false
+        },
+        tooltip: {
+          backgroundColor: 'rgba(5, 20, 30, 0.95)',
+          titleColor: '#00e5ff',
+          bodyColor: '#e0f2fe',
+          borderColor: 'rgba(0, 229, 255, 0.3)',
+          borderWidth: 1,
+          padding: 12,
+          boxPadding: 4,
+          usePointStyle: true,
+          callbacks: {
+            label: function(context) {
+              const val = context.parsed.y;
+              if (val == null) return ` ${context.dataset.label}: N/A`;
+              return ` ${context.dataset.label}: ${val.toFixed(3)} V`;
+            },
+            footer: function(tooltipItems) {
+              if (!tooltipItems || tooltipItems.length === 0) return '';
+              let minV = Infinity, maxV = -Infinity;
+              let minName = '', maxName = '';
+              tooltipItems.forEach(item => {
+                if (item.datasetIndex < 16 && item.parsed.y != null) {
+                  const v = item.parsed.y;
+                  if (v < minV) { minV = v; minName = item.dataset.label; }
+                  if (v > maxV) { maxV = v; maxName = item.dataset.label; }
+                }
+              });
+
+              if (minV !== Infinity && maxV !== -Infinity) {
+                const diff = Math.round((maxV - minV) * 1000) / 1000;
+                return `\n⚡ ค่า Diff ณ จุดนี้: ${diff.toFixed(3)} V (${maxName} - ${minName})`;
+              }
+              return '';
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { color: 'rgba(255, 255, 255, 0.05)' },
+          ticks: { color: '#80a0b0', maxRotation: 0, autoSkip: true, maxTicksLimit: 12 }
+        },
+        y: {
+          position: 'left',
+          grid: { color: 'rgba(255, 255, 255, 0.08)' },
+          ticks: {
+            color: '#00e5ff',
+            callback: function(value) { return value.toFixed(2) + ' V'; }
+          },
+          suggestedMin: 3.0,
+          suggestedMax: 3.65
+        },
+        y1: {
+          position: 'right',
+          grid: { drawOnChartArea: false },
+          ticks: {
+            color: '#ffea00',
+            callback: function(value) { return value.toFixed(3) + ' V'; }
+          },
+          suggestedMin: 0.00,
+          suggestedMax: 0.15
+        }
+      }
+    }
+  });
+}
+
+async function loadAnalyticsData(range = '24h') {
+  try {
+    const res = await fetch(`/api/logs/analytics?range=${range}`);
+    const json = await res.json();
+    analyticsData = json.logs || [];
+
+    if (analyticsData.length === 0) {
+      if (analyticsChart) {
+        analyticsChart.data.labels = [];
+        analyticsChart.data.datasets.forEach(ds => ds.data = []);
+        analyticsChart.update();
+      }
+      return;
+    }
+
+    // Format timestamps for x-axis
+    const labels = analyticsData.map(log => {
+      const d = new Date(log.timestamp);
+      if (range === '7d') {
+        return d.toLocaleDateString('th-TH', { month: 'numeric', day: 'numeric' }) + ' ' + d.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+      } else {
+        return d.toLocaleTimeString('th-TH', { hour12: false });
+      }
+    });
+
+    // Populate datasets for 16 cells + Diff
+    const cellDataArrays = Array.from({ length: 16 }, () => []);
+    const diffArray = [];
+    let overallMin = Infinity, overallMax = -Infinity;
+    let maxDiff = -Infinity;
+
+    analyticsData.forEach(log => {
+      const cellVolts = log.cellVoltages;
+      let recordMin = Infinity, recordMax = -Infinity;
+
+      if (Array.isArray(cellVolts) && cellVolts.length > 0) {
+        for (let i = 0; i < 16; i++) {
+          const v = cellVolts[i];
+          const isValid = typeof v === 'number' && v > 0.5 && v < 6.0;
+          const val = isValid ? v : null;
+          cellDataArrays[i].push(val);
+
+          if (isValid) {
+            if (v < overallMin) overallMin = v;
+            if (v > overallMax) overallMax = v;
+            if (v < recordMin) recordMin = v;
+            if (v > recordMax) recordMax = v;
+          }
+        }
+      } else {
+        for (let i = 0; i < 16; i++) cellDataArrays[i].push(null);
+      }
+
+      let dVal = log.cellVoltDiff;
+      if (dVal == null || dVal >= 3.0) {
+        if (recordMin !== Infinity && recordMax !== -Infinity) {
+          dVal = Math.round((recordMax - recordMin) * 1000) / 1000;
+        }
+      }
+
+      const validDiff = (dVal != null && dVal >= 0 && dVal < 3.0) ? dVal : null;
+      diffArray.push(validDiff);
+      if (validDiff != null && validDiff > maxDiff) maxDiff = validDiff;
+    });
+
+    // Update Chart.js data
+    if (!analyticsChart) {
+      initAnalyticsChart();
+    }
+
+    if (analyticsChart) {
+      analyticsChart.data.labels = labels;
+      for (let i = 0; i < 16; i++) {
+        analyticsChart.data.datasets[i].data = cellDataArrays[i];
+      }
+      analyticsChart.data.datasets[16].data = diffArray;
+
+      // Auto adjust Y-axis scale based on data
+      if (overallMin !== Infinity && overallMax !== -Infinity) {
+        analyticsChart.options.scales.y.suggestedMin = Math.max(0, Math.floor((overallMin - 0.05) * 100) / 100);
+        analyticsChart.options.scales.y.suggestedMax = Math.ceil((overallMax + 0.05) * 100) / 100;
+      }
+      if (maxDiff !== -Infinity) {
+        analyticsChart.options.scales.y1.suggestedMax = Math.ceil((maxDiff + 0.02) * 100) / 100;
+      }
+
+      analyticsChart.update('none'); // smooth update
+    }
+
+    // Update live badge in header
+    const diffBadgeVal = document.getElementById('chart-max-diff-val');
+    if (diffBadgeVal) {
+      diffBadgeVal.textContent = maxDiff !== -Infinity ? `${maxDiff.toFixed(3)} V` : '-- V';
+    }
+
+  } catch (err) {
+    console.error('[Analytics] Error loading data:', err);
+  }
+}
+
+function updateAnalyticsStats(stats) {
+  const elMaxVolt = document.getElementById('analytics-max-volt');
+  const elMaxCell = document.getElementById('analytics-max-cell');
+  const elMinVolt = document.getElementById('analytics-min-volt');
+  const elMinCell = document.getElementById('analytics-min-cell');
+  const elMaxDiff = document.getElementById('analytics-max-diff');
+  const elDiffStatus = document.getElementById('analytics-diff-status');
+
+  if (!stats) {
+    if (elMaxVolt) elMaxVolt.textContent = '-- V';
+    if (elMaxCell) elMaxCell.textContent = '--';
+    if (elMinVolt) elMinVolt.textContent = '-- V';
+    if (elMinCell) elMinCell.textContent = '--';
+    if (elMaxDiff) elMaxDiff.textContent = '-- V';
+    if (elDiffStatus) elDiffStatus.textContent = '--';
+    return;
+  }
+
+  if (elMaxVolt) elMaxVolt.textContent = stats.overallMax != null ? `${stats.overallMax.toFixed(3)} V` : '-- V';
+  if (elMaxCell) elMaxCell.textContent = stats.maxCellIdx >= 0 ? `พบที่ เซลล์ ${stats.maxCellIdx + 1}` : '--';
+
+  if (elMinVolt) elMinVolt.textContent = stats.overallMin != null ? `${stats.overallMin.toFixed(3)} V` : '-- V';
+  if (elMinCell) elMinCell.textContent = stats.minCellIdx >= 0 ? `พบที่ เซลล์ ${stats.minCellIdx + 1}` : '--';
+
+  if (elMaxDiff) elMaxDiff.textContent = stats.maxDiff != null ? `${stats.maxDiff.toFixed(3)} V` : '-- V';
+  if (elDiffStatus) {
+    const d = stats.maxDiff;
+    if (d == null) elDiffStatus.textContent = '--';
+    else if (d <= 0.05) elDiffStatus.textContent = '🟢 สมดุลดีมาก';
+    else if (d <= 0.10) elDiffStatus.textContent = '🟡 ควรเฝ้าระวัง';
+    else elDiffStatus.textContent = '🔴 ต่างกันสูง';
+  }
+}
+
+function toggleCellVisibility(cellIdx) {
+  if (!analyticsChart) return;
+  const dataset = analyticsChart.data.datasets[cellIdx];
+  if (!dataset) return;
+
+  dataset.hidden = !dataset.hidden;
+  analyticsChart.update();
+
+  // Update chip UI
+  const chip = document.querySelector(`.cell-chip[data-cell-idx="${cellIdx}"]`);
+  if (chip) {
+    if (dataset.hidden) chip.classList.remove('active');
+    else chip.classList.add('active');
+  }
+}
+
+function setAllCellsVisibility(visible) {
+  if (!analyticsChart) return;
+  analyticsChart.data.datasets.forEach((ds, idx) => {
+    ds.hidden = !visible;
+    const chip = document.querySelector(`.cell-chip[data-cell-idx="${idx}"]`);
+    if (chip) {
+      if (visible) chip.classList.add('active');
+      else chip.classList.remove('active');
+    }
+  });
+  analyticsChart.update();
+}
+
+function setSelectedCellsOnly(selectedIndices) {
+  if (!analyticsChart) return;
+  const set = new Set(selectedIndices);
+  analyticsChart.data.datasets.forEach((ds, idx) => {
+    const isVisible = set.has(idx);
+    ds.hidden = !isVisible;
+    const chip = document.querySelector(`.cell-chip[data-cell-idx="${idx}"]`);
+    if (chip) {
+      if (isVisible) chip.classList.add('active');
+      else chip.classList.remove('active');
+    }
+  });
+  analyticsChart.update();
+}
+
+function selectMinMaxCellsOnly() {
+  if (!analyticsData || analyticsData.length === 0) return;
+  let minV = Infinity, maxV = -Infinity;
+  let minIdx = 0, maxIdx = 0;
+  analyticsData.forEach(log => {
+    if (Array.isArray(log.cellVoltages)) {
+      log.cellVoltages.forEach((v, idx) => {
+        if (typeof v === 'number' && v > 0.5 && v < 6.0) {
+          if (v < minV) { minV = v; minIdx = idx; }
+          if (v > maxV) { maxV = v; maxIdx = idx; }
+        }
+      });
+    }
+  });
+  setSelectedCellsOnly([minIdx, maxIdx]);
+}
+
 // App Startup
 loadAvailablePorts().then(() => {
   connectWebSocket();
+  initAnalyticsUI();
+  initAnalyticsChart();
 });
 
