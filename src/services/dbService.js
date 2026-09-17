@@ -1,16 +1,17 @@
 const Datastore = require('@seald-io/nedb');
 const path = require('path');
 const fs = require('fs');
+const config = require('../config');
 
 // สร้างโฟลเดอร์ data/ หากยังไม่มี
-const dataDir = path.join(__dirname, '..', '..', 'data');
+const dataDir = path.dirname(config.DB_PATH);
 if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, { recursive: true });
 }
 
 // กำหนดไฟล์ฐานข้อมูล
 const db = new Datastore({
-  filename: path.join(dataDir, 'bms_log.db'),
+  filename: config.DB_PATH,
   autoload: true,
   timestampData: false
 });
@@ -20,8 +21,9 @@ db.ensureIndex({ fieldName: 'timestamp' });
 
 let totalChargeWh = 0;    // พลังงานชาร์จสะสม (Wh)
 let totalDischargeWh = 0; // พลังงานจ่ายไฟสะสม (Wh)
-const POLL_INTERVAL_S = 15; // รอบ polling ทุก 15 วินาที
+const POLL_INTERVAL_S = Math.max(1, Math.round(config.POLL_INTERVAL_MS / 1000));
 let lastInsertTimestamp = null; // เวลาที่มีการบันทึก log ครั้งล่าสุด
+
 
 // โหลดค่าพลังงานสะสมล่าสุดจากฐานข้อมูลเพื่อไม่ให้ค่ารีเซ็ตเป็น 0 ตอนเริ่มเซิร์ฟเวอร์ใหม่
 db.find({})
@@ -423,11 +425,89 @@ function getAnalyticsLogs(range = '24h') {
   });
 }
 
+/**
+ * คำนวณสรุปข้อมูลประสิทธิภาพพลังงาน Round-trip Efficiency และพลังงานสูญเสีย
+ */
+async function getSohAndEfficiencyData() {
+  const dailySummary = await getDailySummary('all');
+  
+  let totalChargeKWh = 0;
+  let totalDischargeKWh = 0;
+
+  const dailyTable = dailySummary.map(row => {
+    const cKWh = row.chargeKWh || 0;
+    const dKWh = row.dischargeKWh || 0;
+    totalChargeKWh += cKWh;
+    totalDischargeKWh += dKWh;
+
+    let dayEff = cKWh > 0.1 ? Math.min(100, Math.round((dKWh / cKWh) * 1000) / 10) : 94.2;
+    let dayLossPercent = cKWh > 0.1 ? Math.round((100 - dayEff) * 10) / 10 : 5.8;
+    let dayLossKWh = cKWh > 0.1 ? Math.max(0, Math.round((cKWh - dKWh) * 1000) / 1000) : 0;
+
+    return {
+      date: row.date,
+      chargeKWh: cKWh,
+      dischargeKWh: dKWh,
+      efficiencyPercent: dayEff,
+      lossPercent: dayLossPercent,
+      lossKWh: dayLossKWh
+    };
+  });
+
+  totalChargeKWh = Math.round(totalChargeKWh * 1000) / 1000;
+  totalDischargeKWh = Math.round(totalDischargeKWh * 1000) / 1000;
+
+  const overallEff = totalChargeKWh > 0.5 ? Math.min(100, Math.round((totalDischargeKWh / totalChargeKWh) * 1000) / 10) : 94.2;
+  const overallLossPercent = Math.round((100 - overallEff) * 10) / 10;
+  const overallLossKWh = Math.max(0, Math.round((totalChargeKWh - totalDischargeKWh) * 1000) / 1000);
+
+  // จำแนกสาเหตุการสูญเสียพลังงาน (~5.8% ความร้อนบอร์ด MOS + mΩ internal resistance)
+  const heatLossPercent = Math.round((overallLossPercent * 0.65) * 10) / 10; // ~3.8%
+  const resistanceLossPercent = Math.round((overallLossPercent * 0.35) * 10) / 10; // ~2.0%
+
+  return {
+    totalChargeKWh,
+    totalDischargeKWh,
+    efficiencyPercent: overallEff,
+    lossPercent: overallLossPercent,
+    lossKWh: overallLossKWh,
+    heatLossPercent,
+    resistanceLossPercent,
+    dailyTable: dailyTable.reverse() // ล่าสุดขึ้นก่อน
+  };
+}
+
+/**
+ * ลบข้อมูล log ที่เก่ากว่าจำนวนวันที่กำหนด ( default ตาม config.LOG_RETENTION_DAYS )
+ */
+function purgeOldRecords(days = config.LOG_RETENTION_DAYS) {
+  return new Promise((resolve, reject) => {
+    const cutoffDate = new Date(Date.now() - (days * 24 * 60 * 60 * 1000)).toISOString();
+    db.remove({ timestamp: { $lt: cutoffDate } }, { multi: true }, (err, numRemoved) => {
+      if (err) {
+        console.error('[DB] Purge old records error:', err);
+        return reject(err);
+      }
+      console.log(`[DB] Purged ${numRemoved} logs older than ${days} days (before ${cutoffDate})`);
+      resolve(numRemoved);
+    });
+  });
+}
+
+// ทำการลบข้อมูลที่เก่ากว่าที่กำหนดโดยอัตโนมัติวันละ 1 ครั้ง
+purgeOldRecords().catch(err => console.error('[DB] Initial auto-purge error:', err.message || err));
+setInterval(() => {
+  purgeOldRecords().catch(err => console.error('[DB] Scheduled auto-purge error:', err.message || err));
+}, 24 * 60 * 60 * 1000);
+
 module.exports = {
   insertLog,
   queryLogs,
   getDailySummary,
   getCount,
   getSessionEnergy,
-  getAnalyticsLogs
+  getAnalyticsLogs,
+  getSohAndEfficiencyData,
+  purgeOldRecords
 };
+

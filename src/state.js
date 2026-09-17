@@ -1,4 +1,5 @@
 const { serverStartTime, formatUptime } = require('./utils/uptime');
+const config = require('./config');
 
 const state = {
   bmsData: null,
@@ -7,8 +8,8 @@ const state = {
   pollIntervalTimer: null,
   reconnectTimer: null,
   isSimulationMode: false,
-  serialPortPath: 'COM3',
-  baudRate: 115200,
+  serialPortPath: config.SERIAL_PORT,
+  baudRate: config.BAUD_RATE,
   bmsFirstDataTime: null,
   bmsLastDataTime: null,
   simulatedState: null // will be initialized by simulation.js

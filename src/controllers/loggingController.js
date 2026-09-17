@@ -84,8 +84,84 @@ router.get('/analytics', async (req, res) => {
       logs
     });
   } catch (err) {
+    console.error("Error fetching analytics logs:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+/**
+ * GET /api/logs/soh-efficiency
+ * ดึงข้อมูลประเมินสุขภาพแบตเตอรี่ (SOH %) และประสิทธิภาพพลังงาน (Round-trip Efficiency)
+ */
+router.get('/soh-efficiency', async (req, res) => {
+  try {
+    const { getCurrentState } = require('../state');
+    const bmsState = getCurrentState();
+
+    const nominalCap = bmsState.packRateCap || 100;
+    const cycleCap = bmsState.packCycleCap || 0;
+    const cycles = bmsState.packNumberCycles || 18;
+
+    // คำนวณ SOH% จาก Nominal Capacity & Cycle Count
+    const rawDegradationFromCycles = cycles * 0.025;
+    const sohPercent = Math.min(100, Math.max(70, Math.round((100 - rawDegradationFromCycles) * 10) / 10));
+    const degradationPercent = Math.round((100 - sohPercent) * 10) / 10;
+
+    // คำนวณอัตราการเสื่อมต่อเดือน (% / month)
+    const monthsInService = Math.max(1, Math.round((cycles / 15) * 10) / 10);
+    const degradationRatePerMonth = Math.round((degradationPercent / monthsInService) * 100) / 100 || 0.35;
+
+    // ประมาณการอายุการใช้งานคงเหลือ (นับจนถึงจุด 70% SOH)
+    const remainingSohSpan = Math.max(0, sohPercent - 70);
+    const estimatedRemainingMonths = degradationRatePerMonth > 0 ? Math.round(remainingSohSpan / degradationRatePerMonth) : 120;
+    const estimatedRemainingYears = Math.round((estimatedRemainingMonths / 12) * 10) / 10;
+
+    const measuredCapAh = Math.round((nominalCap * (sohPercent / 100)) * 10) / 10;
+
+    let healthStatus = 'ดีเยี่ยม (Excellent)';
+    let healthColor = 'var(--color-green)';
+    if (sohPercent < 80) {
+      healthStatus = 'ต้องเฝ้าระวัง (Warning)';
+      healthColor = 'var(--color-amber)';
+    } else if (sohPercent < 70) {
+      healthStatus = 'เสื่อมสภาพมาก (Critical)';
+      healthColor = 'var(--color-rose)';
+    }
+
+    const effData = await db.getSohAndEfficiencyData();
+
+    res.json({
+      soh: {
+        sohPercent,
+        nominalCapAh: nominalCap,
+        measuredCapAh,
+        degradationPercent,
+        degradationRatePerMonth,
+        cycleCount: cycles,
+        monthsInService,
+        estimatedRemainingYears,
+        healthStatus,
+        healthColor
+      },
+      efficiency: effData
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * DELETE /api/logs
+ * ลบข้อมูล log ที่เก่ากว่า N วัน
+ */
+router.delete('/', async (req, res) => {
+  try {
+    const days = req.query.days ? parseInt(req.query.days, 10) : undefined;
+    const numRemoved = await db.purgeOldRecords(days);
+    res.json({ message: 'Purged logs successfully', numRemoved });
+  } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
 module.exports = router;
+

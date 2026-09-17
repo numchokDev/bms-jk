@@ -14,7 +14,7 @@
     href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
     rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <link rel="stylesheet" href="style.css?v=1.2.3">
+  <link rel="stylesheet" href="style.css?v=1.3.0">
 </head>
 
 <body>
@@ -30,7 +30,7 @@
       <button class="tab-btn" id="tab-analytics">กราฟย้อนหลัง (Analytics)</button>
       <!-- <button class="tab-btn" id="tab-detaillogs">ประวัติละเอียด (Detail Logs)</button>
       <button class="tab-btn" id="tab-about">เกี่ยวกับระบบ (About)</button> -->
-      <button class="tab-btn" id="tab-parallel">การขนานแพ็ค (Parallel)</button>
+      <button class="tab-btn" id="tab-soh">สุขภาพแบตเตอรี่ (SOH & Efficiency)</button>
       <div class="connection-status-container">
         <div class="connection-status" id="connection-status">
           <span class="status-indicator offline"></span>
@@ -435,13 +435,148 @@
       </div>
     </section>
 
+    <!-- 5. TAB 5: SOH & ROUND-TRIP EFFICIENCY -->
+    <section id="tab-content-soh" class="tab-content" style="display: none;">
+      <div class="analytics-header">
+        <div class="analytics-title-group">
+          <h2 class="analytics-title">🔋 สุขภาพแบตเตอรี่ & ประสิทธิภาพการอัดประจุ (SOH & Round-trip Efficiency)</h2>
+          <p class="analytics-subtitle">ประเมินความเสื่อมของแพ็คแบตเตอรี่เทียบ Capacity ตอนใหม่ และวิเคราะห์อัตราสูญเสียพลังงานในแต่ละวัน</p>
+        </div>
+      </div>
+
+      <!-- SOH Summary Metrics Grid -->
+      <div class="soh-metrics-grid">
+        <div class="soh-card glow-card">
+          <div class="soh-card-icon">🩺</div>
+          <div class="soh-card-info">
+            <span class="soh-card-label">State of Health (SOH)</span>
+            <div class="soh-card-value" id="soh-percent-val">--%</div>
+            <div class="soh-card-sub" id="soh-status-badge">สถานะสมบูรณ์ปกติ</div>
+          </div>
+        </div>
+
+        <div class="soh-card">
+          <div class="soh-card-icon">⚡</div>
+          <div class="soh-card-info">
+            <span class="soh-card-label">ความจุวัดได้จริง / ตอนใหม่</span>
+            <div class="soh-card-value" id="soh-capacity-val">-- Ah / 100 Ah</div>
+            <div class="soh-card-sub">Nominal 100.0 Ah</div>
+          </div>
+        </div>
+
+        <div class="soh-card">
+          <div class="soh-card-icon">📉</div>
+          <div class="soh-card-info">
+            <span class="soh-card-label">อัตราเสื่อมถอยต่อเดือน</span>
+            <div class="soh-card-value" id="soh-degradation-val">--% / เดือน</div>
+            <div class="soh-card-sub">คำนวณจากประวัติการใช้งาน</div>
+          </div>
+        </div>
+
+        <div class="soh-card">
+          <div class="soh-card-icon">🔄</div>
+          <div class="soh-card-info">
+            <span class="soh-card-label">จำนวนรอบชาร์จ (Cycles)</span>
+            <div class="soh-card-value" id="soh-cycles-val">-- รอบ</div>
+            <div class="soh-card-sub">รอบชาร์จสะสม</div>
+          </div>
+        </div>
+
+        <div class="soh-card">
+          <div class="soh-card-icon">⏳</div>
+          <div class="soh-card-info">
+            <span class="soh-card-label">ประมาณการอายุใช้งานคงเหลือ</span>
+            <div class="soh-card-value" id="soh-lifespan-val">-- ปี</div>
+            <div class="soh-card-sub">จนถึงระดับ SOH 70%</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Efficiency & Energy Loss Section -->
+      <div class="efficiency-main-card">
+        <h3 class="eff-title">⚡ ประสิทธิภาพพลังงานไป-กลับ (Round-trip Efficiency) & อัตราสูญเสียพลังงาน</h3>
+        
+        <div class="eff-grid-container">
+          <!-- Total kWh comparison -->
+          <div class="eff-summary-box">
+            <div class="eff-stat-item">
+              <span class="eff-stat-label">พลังงานชาร์จเข้าสะสม (Energy In):</span>
+              <strong class="eff-stat-val text-green" id="eff-energy-in">-- kWh</strong>
+            </div>
+            <div class="eff-stat-item">
+              <span class="eff-stat-label">พลังงานจ่ายออกสะสม (Energy Out):</span>
+              <strong class="eff-stat-val text-blue" id="eff-energy-out">-- kWh</strong>
+            </div>
+            <div class="eff-stat-item">
+              <span class="eff-stat-label">ประสิทธิภาพรวม (Efficiency):</span>
+              <strong class="eff-stat-val text-gold" id="eff-percent">--%</strong>
+            </div>
+          </div>
+
+          <!-- Loss Breakdown box -->
+          <div class="eff-loss-box">
+            <div class="loss-title">🔥 อัตราสูญเสียเฉลี่ยต่อรอบ (Average Energy Loss ~5.8%)</div>
+            <p class="loss-desc">การสูญเสียพลังงานหลักเกิดจากความร้อนสะสมของ MOSFET และความต้านทานภายในเซลล์ (Internal Resistance)</p>
+            
+            <div class="loss-bars-wrapper">
+              <div class="loss-item">
+                <div class="loss-item-header">
+                  <span>🌡️ ความร้อน MOSFET (MOSFET Heat)</span>
+                  <strong id="loss-heat-val">~3.8%</strong>
+                </div>
+                <div class="loss-progress-outer">
+                  <div class="loss-progress-inner heat-bar" id="loss-heat-bar" style="width: 65.5%;"></div>
+                </div>
+              </div>
+
+              <div class="loss-item">
+                <div class="loss-item-header">
+                  <span>⚡ ความต้านทานภายในเซลล์ (Internal Resistance mΩ)</span>
+                  <strong id="loss-resistance-val">~2.0%</strong>
+                </div>
+                <div class="loss-progress-outer">
+                  <div class="loss-progress-inner resistance-bar" id="loss-resistance-bar" style="width: 34.5%;"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Daily Efficiency Table -->
+      <div class="logging-card-wrapper" style="margin-top: 24px;">
+        <div class="logging-header">
+          <span>📅 ประวัติประสิทธิภาพการชาร์จ/ดิสชาร์จ รายวัน (Daily Round-trip Efficiency History)</span>
+        </div>
+        <div class="logging-table-container">
+          <table class="logging-table soh-table">
+            <thead>
+              <tr>
+                <th>วันที่ (Date)</th>
+                <th>ชาร์จเข้า (kWh In)</th>
+                <th>จ่ายออก (kWh Out)</th>
+                <th>ประสิทธิภาพ (%)</th>
+                <th>พลังงานสูญเสีย (kWh)</th>
+                <th>สถานะการทำงาน</th>
+              </tr>
+            </thead>
+            <tbody id="soh-daily-tbody">
+              <tr>
+                <td colspan="6" style="text-align:center; padding: 20px;">กำลังโหลดข้อมูล...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
 
     <footer class="app-footer">
       <p>&copy; 2026 ระบบตรวจสอบสถานะแบตเตอรี่ JK BMS เรียลไทม์ (พัฒนาโดย Numchok Jantadung)</p>
     </footer>
   </div>
 
-  <script src="app.js?v=1.2.3"></script>
+  <script src="app.js?v=1.3.0"></script>
 </body>
 
 </html>

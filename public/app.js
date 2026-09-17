@@ -580,8 +580,9 @@ const elStatus = document.querySelector('.battery-status-container');
 const elCells = document.querySelector('.cells-voltage-container');
 const elResistance = document.querySelector('.cells-resistance-container');
 const elDiagnostics = document.querySelector('.diagnostics-container');
-const elLoggingPanel = document.getElementById('logging-panel');
+const elLoggingPanel = document.getElementById('logging-panel') || document.getElementById('tab-content-logging');
 const elAnalyticsPanel = document.getElementById('tab-content-analytics');
+const elSohPanel = document.getElementById('tab-content-soh');
 
 if (tabButtons.length > 0 && dashboardLayout && leftPanel && rightPanel) {
   tabButtons.forEach(btn => {
@@ -608,6 +609,7 @@ if (tabButtons.length > 0 && dashboardLayout && leftPanel && rightPanel) {
       if (elDiagnostics) elDiagnostics.style.display = 'block';
       if (elLoggingPanel) elLoggingPanel.style.display = 'none';
       if (elAnalyticsPanel) elAnalyticsPanel.style.display = 'none';
+      if (elSohPanel) elSohPanel.style.display = 'none';
 
       if (tabId === 'tab-settings') {
         dashboardLayout.style.display = 'block';
@@ -643,6 +645,16 @@ if (tabButtons.length > 0 && dashboardLayout && leftPanel && rightPanel) {
           });
         }
       }
+      else if (tabId === 'tab-soh') {
+        // SOH Tab: ซ่อน dashboard แสดง SOH panel แทน
+        dashboardLayout.style.display = 'none';
+        if (elLoggingPanel) elLoggingPanel.style.display = 'none';
+        if (elAnalyticsPanel) elAnalyticsPanel.style.display = 'none';
+        if (elSohPanel) {
+          elSohPanel.style.display = 'block';
+          loadSohEfficiencyData();
+        }
+      }
       else if (tabId === 'tab-detaillogs') {
         if (elGauges) elGauges.style.display = 'none';
         if (elCells) elCells.style.display = 'none';
@@ -652,11 +664,6 @@ if (tabButtons.length > 0 && dashboardLayout && leftPanel && rightPanel) {
       else if (tabId === 'tab-about') {
         dashboardLayout.style.display = 'block';
         rightPanel.style.display = 'none';
-      }
-      else if (tabId === 'tab-parallel') {
-        dashboardLayout.style.display = 'block';
-        leftPanel.style.display = 'none';
-        if (elDiagnostics) elDiagnostics.style.display = 'none';
       }
     });
   });
@@ -1282,10 +1289,80 @@ function selectMinMaxCellsOnly() {
   setSelectedCellsOnly([minIdx, maxIdx]);
 }
 
+// ============================================================
+// SOH & ROUND-TRIP EFFICIENCY DATA FUNCTIONS
+// ============================================================
+async function loadSohEfficiencyData() {
+  try {
+    const res = await fetch('/api/logs/soh-efficiency');
+    const data = await res.json();
+    if (!data.success) return;
+
+    // SOH Card metrics
+    const elSohPercent = document.getElementById('soh-percent-val');
+    const elSohStatus = document.getElementById('soh-status-badge');
+    const elSohCap = document.getElementById('soh-capacity-val');
+    const elSohDeg = document.getElementById('soh-degradation-val');
+    const elSohCycles = document.getElementById('soh-cycles-val');
+    const elSohLifespan = document.getElementById('soh-lifespan-val');
+
+    if (elSohPercent) elSohPercent.textContent = `${data.sohPercent}%`;
+    if (elSohStatus) {
+      if (data.sohPercent >= 90) elSohStatus.textContent = '🟢 สถานะดีเยี่ยม (Excellent)';
+      else if (data.sohPercent >= 80) elSohStatus.textContent = '🟡 สถานะปกติ (Normal)';
+      else elSohStatus.textContent = '🔴 เริ่มเสื่อมถอย (Degraded)';
+    }
+    if (elSohCap) elSohCap.textContent = `${data.actualCapacityAh.toFixed(1)} Ah / ${data.nominalCapacityAh.toFixed(1)} Ah`;
+    if (elSohDeg) elSohDeg.textContent = `${data.degradationRatePerMonth.toFixed(2)}% / เดือน`;
+    if (elSohCycles) elSohCycles.textContent = `${data.cycleCount} รอบ`;
+    if (elSohLifespan) elSohLifespan.textContent = `~${data.remainingLifespanYears.toFixed(1)} ปี`;
+
+    // Efficiency metrics
+    const elEnergyIn = document.getElementById('eff-energy-in');
+    const elEnergyOut = document.getElementById('eff-energy-out');
+    const elEffPercent = document.getElementById('eff-percent');
+    const elHeatVal = document.getElementById('loss-heat-val');
+    const elHeatBar = document.getElementById('loss-heat-bar');
+    const elResVal = document.getElementById('loss-resistance-val');
+    const elResBar = document.getElementById('loss-resistance-bar');
+
+    if (elEnergyIn) elEnergyIn.textContent = `${data.totalChargeKWh.toFixed(2)} kWh`;
+    if (elEnergyOut) elEnergyOut.textContent = `${data.totalDischargeKWh.toFixed(2)} kWh`;
+    if (elEffPercent) elEffPercent.textContent = `${data.efficiencyPercent.toFixed(1)}%`;
+    if (elHeatVal) elHeatVal.textContent = `~${data.heatLossPercent.toFixed(1)}%`;
+    if (elResVal) elResVal.textContent = `~${data.resistanceLossPercent.toFixed(1)}%`;
+
+    if (elHeatBar && data.lossPercent > 0) elHeatBar.style.width = `${(data.heatLossPercent / data.lossPercent) * 100}%`;
+    if (elResBar && data.lossPercent > 0) elResBar.style.width = `${(data.resistanceLossPercent / data.lossPercent) * 100}%`;
+
+    // Daily Table
+    const tbody = document.getElementById('soh-daily-tbody');
+    if (tbody) {
+      if (!data.dailyTable || data.dailyTable.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding: 20px;">ยังไม่มีข้อมูลประวัติรายวัน</td></tr>`;
+      } else {
+        tbody.innerHTML = data.dailyTable.map(row => `
+          <tr>
+            <td><strong>${row.date}</strong></td>
+            <td><span class="text-green">${row.chargeKWh.toFixed(3)} kWh</span></td>
+            <td><span class="text-blue">${row.dischargeKWh.toFixed(3)} kWh</span></td>
+            <td><strong class="text-gold">${row.efficiency.toFixed(1)}%</strong></td>
+            <td><span style="color:#f87171;">-${row.lossKWh.toFixed(3)} kWh</span></td>
+            <td><span class="prot-badge ok" style="padding: 2px 8px; font-size:0.75rem;">ปกติ</span></td>
+          </tr>
+        `).join('');
+      }
+    }
+  } catch (e) {
+    console.error("Failed to load SOH and efficiency data:", e);
+  }
+}
+
 // App Startup
 loadAvailablePorts().then(() => {
   connectWebSocket();
   initAnalyticsUI();
   initAnalyticsChart();
 });
+
 

@@ -1,11 +1,24 @@
-// Config constants
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
+
+const portStr = process.env.PORT;
+const baudRateStr = process.env.BAUD_RATE;
+const slaveIdStr = process.env.MODBUS_SLAVE_ID;
+const pollIntervalStr = process.env.POLL_INTERVAL_MS;
+const timeoutStr = process.env.MODBUS_TIMEOUT_MS;
+const retentionDaysStr = process.env.LOG_RETENTION_DAYS;
+
 module.exports = {
-  PORT: process.env.PORT || 3000,
-  DEFAULT_PORT_PATH: 'COM3',
-  DEFAULT_BAUD_RATE: 115200,
-  MODBUS_SLAVE_ID: 1,
-  POLL_INTERVAL_MS: 15000,//ตั้งเวลาห
-  MODBUS_TIMEOUT_MS: 400,
+  PORT: portStr ? parseInt(portStr, 10) : 3000,
+  SERIAL_PORT: process.env.SERIAL_PORT || process.env.DEFAULT_PORT_PATH || 'COM3',
+  DEFAULT_PORT_PATH: process.env.SERIAL_PORT || process.env.DEFAULT_PORT_PATH || 'COM3',
+  BAUD_RATE: baudRateStr ? parseInt(baudRateStr, 10) : 115200,
+  DEFAULT_BAUD_RATE: baudRateStr ? parseInt(baudRateStr, 10) : 115200,
+  MODBUS_SLAVE_ID: slaveIdStr ? parseInt(slaveIdStr, 10) : 1,
+  POLL_INTERVAL_MS: pollIntervalStr ? parseInt(pollIntervalStr, 10) : 15000,
+  MODBUS_TIMEOUT_MS: timeoutStr ? parseInt(timeoutStr, 10) : 400,
+  DB_PATH: process.env.DB_PATH || path.join(__dirname, '..', 'data', 'bms_log.db'),
+  LOG_RETENTION_DAYS: retentionDaysStr ? parseInt(retentionDaysStr, 10) : 30,
 
   // Register addresses
   REG_CELL_VOLTAGE: 0x1200,  // Cell voltages (x20 regs)
@@ -15,3 +28,4 @@ module.exports = {
   REG_STATUS1: 0x12A0,       // Status block 1 (capacity)
   REG_STATUS2: 0x12B0,       // Status block 2 (cycles, FET)
 };
+
