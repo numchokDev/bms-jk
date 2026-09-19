@@ -26,6 +26,11 @@ module.exports = {
   BATTERY_EOL_SOH: process.env.BATTERY_EOL_SOH ? parseFloat(process.env.BATTERY_EOL_SOH) : 70,
   BATTERY_CYCLES_PER_MONTH: process.env.BATTERY_CYCLES_PER_MONTH ? parseFloat(process.env.BATTERY_CYCLES_PER_MONTH) : 15,
 
+  // Electricity Tariff Configuration (THB / kWh)
+  ELECTRICITY_RATE_THB: process.env.ELECTRICITY_RATE_THB ? parseFloat(process.env.ELECTRICITY_RATE_THB) : 4.5,
+  ELECTRICITY_CHARGE_RATE_THB: process.env.ELECTRICITY_CHARGE_RATE_THB ? parseFloat(process.env.ELECTRICITY_CHARGE_RATE_THB) : (process.env.ELECTRICITY_RATE_THB ? parseFloat(process.env.ELECTRICITY_RATE_THB) : 4.5),
+  ELECTRICITY_DISCHARGE_RATE_THB: process.env.ELECTRICITY_DISCHARGE_RATE_THB ? parseFloat(process.env.ELECTRICITY_DISCHARGE_RATE_THB) : (process.env.ELECTRICITY_RATE_THB ? parseFloat(process.env.ELECTRICITY_RATE_THB) : 4.5),
+
   // Register addresses
   REG_CELL_VOLTAGE: 0x1200,  // Cell voltages (x20 regs)
   REG_PACK_STATS: 0x1240,    // Pack stats + wire resistance

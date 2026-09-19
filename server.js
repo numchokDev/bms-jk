@@ -9,6 +9,7 @@ const { setupWebSocket, broadcast } = require('./src/controllers/wsController');
 const { startSimulation } = require('./src/models/simulation');
 const apiRouter = require('./src/controllers/apiController');
 const loggingRouter = require('./src/controllers/loggingController');
+const { warmupCache } = require('./src/services/dbService');
 
 const app = express();
 const server = http.createServer(app);
@@ -35,6 +36,9 @@ server.listen(PORT, async () => {
   console.log(`JK BMS Dashboard Server listening on port ${PORT}`);
   console.log(`Open your browser at: http://localhost:${PORT}`);
   console.log(`==================================================`);
+
+  // โหลด Re-cache สถานะ BMS ล่าสุดและคำนวณข้อมูลสรุปภาพรวมเข้า RAM ทันที
+  await warmupCache();
 
   // เรียกใช้ Auto-Discovery เพื่อค้นหาและเปิดใช้งานพอร์ต COM ของ JK BMS จริงโดยอัตโนมัติ
   await autoDiscoverBmsPort();

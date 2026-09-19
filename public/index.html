@@ -15,6 +15,20 @@
     rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <link rel="stylesheet" href="style.css?v=1.3.0">
+  <script>
+    window.currentEffScope = 'all';
+    window.setEfficiencyScope = function(scope) {
+      window.currentEffScope = scope || 'all';
+      const isMonth = window.currentEffScope === 'month';
+      const bAll = document.getElementById('btn-eff-scope-all');
+      const bMonth = document.getElementById('btn-eff-scope-month');
+      if (bAll) bAll.classList.toggle('active', !isMonth);
+      if (bMonth) bMonth.classList.toggle('active', isMonth);
+      if (typeof window.applyEfficiencyMetrics === 'function') {
+        window.applyEfficiencyMetrics(window.currentEffScope);
+      }
+    };
+  </script>
 </head>
 
 <body>
@@ -388,9 +402,10 @@
       <div class="analytics-header">
         <div class="analytics-title-group">
           <h2 class="analytics-title">📊 วิเคราะห์แรงดันเซลล์ย้อนหลัง (Historical Cell Voltage Analytics)</h2>
-          <p class="analytics-subtitle">ติดตามและเปรียบเทียบพฤติกรรมแรงดันไฟฟ้าของเซลล์ทั้ง 16 เซลล์ย้อนหลัง เพื่อวิเคราะห์สถานะและหาเซลล์ที่ดริฟท์</p>
+          <p class="analytics-subtitle">ติดตามและเปรียบเทียบพฤติกรรมแรงดันไฟฟ้าของเซลล์ทั้ง 16 เซลล์ย้อนหลัง
+            เพื่อวิเคราะห์สถานะและหาเซลล์ที่ดริฟท์</p>
         </div>
-        
+
         <!-- Time Range Selector -->
         <div class="time-range-container">
           <span class="range-label">ช่วงเวลา:</span>
@@ -414,7 +429,7 @@
             <button class="quick-btn accent" id="btn-select-pack">เฉพาะ Pack & SOC</button>
           </div>
         </div>
-        
+
         <div class="cell-chips-grid" id="cell-chips-grid">
           <!-- 16 Cell Toggle Chips will be injected by JavaScript -->
         </div>
@@ -425,7 +440,8 @@
         <div class="chart-header">
           <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
             <span>กราฟแนวโน้มแรงดันไฟฟ้า 16 เซลล์ (Voltage Trends)</span>
-            <span class="diff-live-badge" id="chart-diff-badge">⚡ Diff ความต่างสูงสุด: <strong id="chart-max-diff-val">-- V</strong></span>
+            <span class="diff-live-badge" id="chart-diff-badge">⚡ Diff ความต่างสูงสุด: <strong
+                id="chart-max-diff-val">-- V</strong></span>
           </div>
           <span class="chart-legend-hint">💡 เอาเมาส์ชี้บนกราฟเพื่อดูค่า Diff ในจุดนั้นๆ</span>
         </div>
@@ -440,7 +456,8 @@
       <div class="analytics-header">
         <div class="analytics-title-group">
           <h2 class="analytics-title">🔋 สุขภาพแบตเตอรี่ & ประสิทธิภาพการอัดประจุ (SOH & Round-trip Efficiency)</h2>
-          <p class="analytics-subtitle">ประเมินความเสื่อมของแพ็คแบตเตอรี่เทียบ Capacity ตอนใหม่ และวิเคราะห์อัตราสูญเสียพลังงานในแต่ละวัน</p>
+          <p class="analytics-subtitle">ประเมินความเสื่อมของแพ็คแบตเตอรี่เทียบ Capacity ตอนใหม่
+            และวิเคราะห์อัตราสูญเสียพลังงานในแต่ละวัน</p>
         </div>
       </div>
 
@@ -494,30 +511,53 @@
 
       <!-- Efficiency & Energy Loss Section -->
       <div class="efficiency-main-card">
-        <h3 class="eff-title">⚡ ประสิทธิภาพพลังงานไป-กลับ (Round-trip Efficiency) & อัตราสูญเสียพลังงาน</h3>
-        
+        <div class="eff-header-row">
+          <div>
+            <h3 class="eff-title">⚡ ประสิทธิภาพพลังงานไป-กลับ (Round-trip Efficiency) & อัตราสูญเสียพลังงาน</h3>
+            <div class="eff-scope-desc" id="eff-scope-desc">📊 ขอบเขตข้อมูล: <strong>สะสมทั้งหมดตลอดประวัติ (All-Time Total)</strong></div>
+          </div>
+          <div class="eff-scope-switch">
+            <button type="button" class="eff-scope-btn active" id="btn-eff-scope-all" onclick="setEfficiencyScope('all')">🌐 สะสมทั้งหมด (All-Time)</button>
+            <button type="button" class="eff-scope-btn" id="btn-eff-scope-month" onclick="setEfficiencyScope('month')">📅 เฉพาะเดือนนี้ (This Month)</button>
+          </div>
+        </div>
+
         <div class="eff-grid-container">
           <!-- Total kWh comparison -->
           <div class="eff-summary-box">
             <div class="eff-stat-item">
-              <span class="eff-stat-label">พลังงานชาร์จเข้าสะสม (Energy In):</span>
-              <strong class="eff-stat-val text-green" id="eff-energy-in">-- kWh</strong>
+              <span class="eff-stat-label" id="lbl-eff-in">พลังงานชาร์จเข้าสะสมทั้งหมด (Energy In):</span>
+              <div class="eff-stat-val-group">
+                <strong class="eff-stat-val text-green" id="eff-energy-in">-- kWh</strong>
+                <span class="eff-cost-sub text-green-sub" id="eff-cost-in">≈ ฿0.00</span>
+              </div>
             </div>
             <div class="eff-stat-item">
-              <span class="eff-stat-label">พลังงานจ่ายออกสะสม (Energy Out):</span>
-              <strong class="eff-stat-val text-blue" id="eff-energy-out">-- kWh</strong>
+              <span class="eff-stat-label" id="lbl-eff-out">พลังงานจ่ายออกสะสมทั้งหมด (Energy Out):</span>
+              <div class="eff-stat-val-group">
+                <strong class="eff-stat-val text-blue" id="eff-energy-out">-- kWh</strong>
+                <span class="eff-cost-sub text-blue-sub" id="eff-cost-out">≈ ฿0.00</span>
+              </div>
             </div>
             <div class="eff-stat-item">
-              <span class="eff-stat-label">ประสิทธิภาพรวม (Efficiency):</span>
-              <strong class="eff-stat-val text-gold" id="eff-percent">--%</strong>
+              <span class="eff-stat-label" id="lbl-eff-percent">ประสิทธิภาพรวมตลอดการใช้งาน (Efficiency):</span>
+              <div class="eff-stat-val-group">
+                <strong class="eff-stat-val text-gold" id="eff-percent">--%</strong>
+                <span class="eff-cost-sub text-loss-sub" id="eff-cost-loss">สูญเสีย ≈ ฿0.00</span>
+              </div>
+            </div>
+            <div class="eff-stat-item eff-rate-item">
+              <span class="eff-stat-label">อัตราค่าไฟที่ตั้งไว้ (.env):</span>
+              <span class="eff-rate-badge" id="eff-rate-badge">4.50 ฿/kWh</span>
             </div>
           </div>
 
           <!-- Loss Breakdown box -->
           <div class="eff-loss-box">
             <div class="loss-title">🔥 อัตราสูญเสียเฉลี่ยต่อรอบ (Average Energy Loss ~5.8%)</div>
-            <p class="loss-desc">การสูญเสียพลังงานหลักเกิดจากความร้อนสะสมของ MOSFET และความต้านทานภายในเซลล์ (Internal Resistance)</p>
-            
+            <p class="loss-desc">การสูญเสียพลังงานหลักเกิดจากความร้อนสะสมของ MOSFET และความต้านทานภายในเซลล์ (Internal
+              Resistance)</p>
+
             <div class="loss-bars-wrapper">
               <div class="loss-item">
                 <div class="loss-item-header">
@@ -553,10 +593,10 @@
             <thead>
               <tr>
                 <th>วันที่ (Date)</th>
-                <th>ชาร์จเข้า (kWh In)</th>
-                <th>จ่ายออก (kWh Out)</th>
+                <th>ชาร์จเข้า (kWh / มูลค่า)</th>
+                <th>จ่ายออก (kWh / มูลค่า)</th>
                 <th>ประสิทธิภาพ (%)</th>
-                <th>พลังงานสูญเสีย (kWh)</th>
+                <th>พลังงานสูญเสีย (kWh / มูลค่า)</th>
                 <th>สถานะการทำงาน</th>
               </tr>
             </thead>
@@ -576,7 +616,7 @@
     </footer>
   </div>
 
-  <script src="app.js?v=1.3.0"></script>
+  <script src="app.js?v=1.3.2"></script>
 </body>
 
 </html>

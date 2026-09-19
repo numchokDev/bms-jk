@@ -2,6 +2,7 @@ const Datastore = require('@seald-io/nedb');
 const path = require('path');
 const fs = require('fs');
 const config = require('../config');
+const cache = require('./cacheService');
 
 // สร้างโฟลเดอร์ data/ หากยังไม่มี
 const dataDir = path.dirname(config.DB_PATH);
@@ -23,21 +24,58 @@ let totalChargeWh = 0;    // พลังงานชาร์จสะสม (W
 let totalDischargeWh = 0; // พลังงานจ่ายไฟสะสม (Wh)
 const POLL_INTERVAL_S = Math.max(1, Math.round(config.POLL_INTERVAL_MS / 1000));
 let lastInsertTimestamp = null; // เวลาที่มีการบันทึก log ครั้งล่าสุด
+let isWarmedUp = false;
+let warmupPromise = null;
 
+/**
+ * Re-cache & Warmup ทุกครั้งที่เริ่มเซิร์ฟเวอร์ใหม่
+ * โหลดสถานะล่าสุดและคำนวณข้อมูลสรุปเข้า RAM ล่วงหน้า
+ */
+async function warmupCache() {
+  if (isWarmedUp) return;
+  if (warmupPromise) return warmupPromise;
 
-// โหลดค่าพลังงานสะสมล่าสุดจากฐานข้อมูลเพื่อไม่ให้ค่ารีเซ็ตเป็น 0 ตอนเริ่มเซิร์ฟเวอร์ใหม่
-db.find({})
-  .sort({ timestamp: -1 })
-  .limit(1)
-  .exec((err, docs) => {
-    if (!err && docs && docs.length > 0) {
-      totalChargeWh = docs[0].energyChargeWh || 0;
-      totalDischargeWh = docs[0].energyDischargeWh || 0;
-      console.log(`[DB] Restored accumulative energy values from DB: Charge=${totalChargeWh} Wh, Discharge=${totalDischargeWh} Wh`);
-    } else {
-      console.log("[DB] No previous energy history found. Starting accumulation from 0.");
+  warmupPromise = (async () => {
+    const startTime = Date.now();
+
+    try {
+      // 1. ดึง record ล่าสุดเพื่อ restore state ล่าสุดลง RAM สำหรับ WebSocket
+      const latestDocs = await new Promise((resolve) => {
+        db.find({}).sort({ timestamp: -1 }).limit(1).exec((err, docs) => {
+          resolve(!err && docs ? docs : []);
+        });
+      });
+
+      if (latestDocs.length > 0) {
+        const doc = latestDocs[0];
+        totalChargeWh = doc.energyChargeWh || 0;
+        totalDischargeWh = doc.energyDischargeWh || 0;
+
+        const { restoreBmsStateFromDb } = require('../state');
+        restoreBmsStateFromDb(doc);
+        console.log(`[Cache] Restored BMS State & Energy from DB: Charge=${(totalChargeWh/1000).toFixed(2)} kWh, Discharge=${(totalDischargeWh/1000).toFixed(2)} kWh`);
+      } else {
+        console.log("[Cache] No previous records found in DB. Starting fresh state.");
+      }
+
+      // 2. Pre-calculate Daily Summary & SOH/Efficiency เข้า In-Memory Cache ทันที
+      console.log('[Cache] Pre-warming summary caches (Daily, SOH, Analytics)...');
+      await getDailySummary(30);
+      await getSohAndEfficiencyData();
+      await getAnalyticsLogs('24h');
+
+      isWarmedUp = true;
+      const duration = Date.now() - startTime;
+      console.log(`[Cache] ✅ Startup cache warmup complete in ${duration}ms (${JSON.stringify(cache.getStats())})`);
+    } catch (err) {
+      console.error('[Cache] Cache warmup warning:', err.message);
+    } finally {
+      warmupPromise = null;
     }
-  });
+  })();
+
+  return warmupPromise;
+}
 
 // ล้างข้อมูล cell voltage ที่ผิดพลาดจาก bug เก่า (เช่น > 10V)
 db.update(
@@ -186,6 +224,12 @@ function queryLogs(from, to, limit = 1000) {
  * @param {number} days - จำนวนวันย้อนหลัง (default: 30)
  */
 function getDailySummary(days = 30) {
+  const cacheKey = `summary:daily:${days}`;
+  const cached = cache.get(cacheKey);
+  if (cached) {
+    return Promise.resolve(cached);
+  }
+
   return new Promise((resolve, reject) => {
     const query = {};
     if (days !== 'all' && days !== 99999) {
@@ -323,6 +367,7 @@ function getDailySummary(days = 30) {
           cellVoltDiffMax: d.cellVoltDiffMax === -Infinity ? null : d.cellVoltDiffMax
         }));
 
+        cache.set(cacheKey, summary, 60000); // แคชผลลัพธ์ไว้ 60 วินาที
         resolve(summary);
       });
   });
@@ -357,6 +402,12 @@ function getSessionEnergy() {
  * @param {string} range - ช่วงเวลา ('3h', '24h', '7d')
  */
 function getAnalyticsLogs(range = '24h') {
+  const cacheKey = `summary:analytics:${range}`;
+  const cached = cache.get(cacheKey);
+  if (cached) {
+    return Promise.resolve(cached);
+  }
+
   return new Promise((resolve, reject) => {
     let durationMs = 24 * 3600 * 1000; // default 24h
     if (range === '3h') durationMs = 3 * 3600 * 1000;
@@ -420,6 +471,7 @@ function getAnalyticsLogs(range = '24h') {
           };
         });
 
+        cache.set(cacheKey, result, 30000); // แคชผลลัพธ์กราฟไว้ 30 วินาที
         resolve(result);
       });
   });
@@ -429,10 +481,19 @@ function getAnalyticsLogs(range = '24h') {
  * คำนวณสรุปข้อมูลประสิทธิภาพพลังงาน Round-trip Efficiency และพลังงานสูญเสีย
  */
 async function getSohAndEfficiencyData() {
+  const cacheKey = 'summary:soh_efficiency';
+  const cached = cache.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
   const dailySummary = await getDailySummary('all');
   
   let totalChargeKWh = 0;
   let totalDischargeKWh = 0;
+
+  const chargeRate = config.ELECTRICITY_CHARGE_RATE_THB || config.ELECTRICITY_RATE_THB || 4.5;
+  const dischargeRate = config.ELECTRICITY_DISCHARGE_RATE_THB || config.ELECTRICITY_RATE_THB || 4.5;
 
   const dailyTable = dailySummary.map(row => {
     const cKWh = row.chargeKWh || 0;
@@ -444,13 +505,20 @@ async function getSohAndEfficiencyData() {
     let dayLossPercent = cKWh > 0.1 ? Math.round((100 - dayEff) * 10) / 10 : 5.8;
     let dayLossKWh = cKWh > 0.1 ? Math.max(0, Math.round((cKWh - dKWh) * 1000) / 1000) : 0;
 
+    const chargeCostThb = Math.round(cKWh * chargeRate * 100) / 100;
+    const dischargeValueThb = Math.round(dKWh * dischargeRate * 100) / 100;
+    const lossCostThb = Math.round(dayLossKWh * chargeRate * 100) / 100;
+
     return {
       date: row.date,
       chargeKWh: cKWh,
       dischargeKWh: dKWh,
       efficiencyPercent: dayEff,
       lossPercent: dayLossPercent,
-      lossKWh: dayLossKWh
+      lossKWh: dayLossKWh,
+      chargeCostThb,
+      dischargeValueThb,
+      lossCostThb
     };
   });
 
@@ -461,43 +529,128 @@ async function getSohAndEfficiencyData() {
   const overallLossPercent = Math.round((100 - overallEff) * 10) / 10;
   const overallLossKWh = Math.max(0, Math.round((totalChargeKWh - totalDischargeKWh) * 1000) / 1000);
 
+  // คำนวณยอดเงินสะสม (THB) จากพลังงานเข้า/ออก
+  const totalChargeCostThb = Math.round(totalChargeKWh * chargeRate * 100) / 100;
+  const totalDischargeValueThb = Math.round(totalDischargeKWh * dischargeRate * 100) / 100;
+  const totalLossCostThb = Math.round(overallLossKWh * chargeRate * 100) / 100;
+
+  // คำนวณแยกยอดเฉพาะเดือนปัจจุบัน (This Month)
+  const nowUtc7 = new Date(Date.now() + 7 * 3600 * 1000);
+  const currentMonthPrefix = nowUtc7.toISOString().substring(0, 7); // "YYYY-MM"
+
+  let monthChargeKWh = 0;
+  let monthDischargeKWh = 0;
+  let monthDaysCount = 0;
+
+  dailyTable.forEach(row => {
+    if (row.date && row.date.startsWith(currentMonthPrefix)) {
+      monthChargeKWh += row.chargeKWh;
+      monthDischargeKWh += row.dischargeKWh;
+      monthDaysCount++;
+    }
+  });
+
+  monthChargeKWh = Math.round(monthChargeKWh * 1000) / 1000;
+  monthDischargeKWh = Math.round(monthDischargeKWh * 1000) / 1000;
+  const monthEff = monthChargeKWh > 0.5 ? Math.min(100, Math.round((monthDischargeKWh / monthChargeKWh) * 1000) / 10) : 94.2;
+  const monthLossKWh = Math.max(0, Math.round((monthChargeKWh - monthDischargeKWh) * 1000) / 1000);
+  const monthLossPercent = Math.round((100 - monthEff) * 10) / 10;
+  const monthChargeCostThb = Math.round(monthChargeKWh * chargeRate * 100) / 100;
+  const monthDischargeValueThb = Math.round(monthDischargeKWh * dischargeRate * 100) / 100;
+  const monthLossCostThb = Math.round(monthLossKWh * chargeRate * 100) / 100;
+
   // จำแนกสาเหตุการสูญเสียพลังงาน (~5.8% ความร้อนบอร์ด MOS + mΩ internal resistance)
   const heatLossPercent = Math.round((overallLossPercent * 0.65) * 10) / 10; // ~3.8%
   const resistanceLossPercent = Math.round((overallLossPercent * 0.35) * 10) / 10; // ~2.0%
 
-  return {
+  const result = {
+    timeframe: 'all-time',
+    timeframeLabel: 'สะสมทั้งหมดตลอดอายุการใช้งาน (All-Time Total)',
+    totalDaysRecorded: dailyTable.length,
     totalChargeKWh,
     totalDischargeKWh,
     efficiencyPercent: overallEff,
     lossPercent: overallLossPercent,
     lossKWh: overallLossKWh,
+    electricityRateThb: chargeRate,
+    chargeRateThb: chargeRate,
+    dischargeRateThb: dischargeRate,
+    totalChargeCostThb,
+    totalDischargeValueThb,
+    totalLossCostThb,
+    thisMonth: {
+      monthKey: currentMonthPrefix,
+      daysCount: monthDaysCount,
+      chargeKWh: monthChargeKWh,
+      dischargeKWh: monthDischargeKWh,
+      efficiencyPercent: monthEff,
+      lossPercent: monthLossPercent,
+      lossKWh: monthLossKWh,
+      chargeCostThb: monthChargeCostThb,
+      dischargeValueThb: monthDischargeValueThb,
+      lossCostThb: monthLossCostThb
+    },
     heatLossPercent,
     resistanceLossPercent,
     dailyTable: dailyTable.reverse() // ล่าสุดขึ้นก่อน
   };
+
+  cache.set(cacheKey, result, 60000); // แคชไว้ 60 วินาที
+  return result;
 }
 
 /**
  * ลบข้อมูล log ที่เก่ากว่าจำนวนวันที่กำหนด ( default ตาม config.LOG_RETENTION_DAYS )
  */
-function purgeOldRecords(days = config.LOG_RETENTION_DAYS) {
-  return new Promise((resolve, reject) => {
-    const cutoffDate = new Date(Date.now() - (days * 24 * 60 * 60 * 1000)).toISOString();
-    db.remove({ timestamp: { $lt: cutoffDate } }, { multi: true }, (err, numRemoved) => {
-      if (err) {
-        console.error('[DB] Purge old records error:', err);
-        return reject(err);
+async function purgeOldRecords(days = config.LOG_RETENTION_DAYS) {
+  const cutoffDate = new Date(Date.now() - (days * 24 * 60 * 60 * 1000)).toISOString();
+  let totalRemoved = 0;
+
+  try {
+    // ลบเป็นชุดเพื่อป้องกัน NeDB recursive stack overflow เมื่อมีรายการสะสมหลายแสนรายการ
+    while (true) {
+      const docs = await new Promise((resolve, reject) => {
+        db.find({ timestamp: { $lt: cutoffDate } })
+          .projection({ _id: 1 })
+          .limit(2000)
+          .exec((err, res) => {
+            if (err) reject(err);
+            else resolve(res || []);
+          });
+      });
+
+      if (docs.length === 0) break;
+
+      const ids = docs.map(d => d._id);
+      const removedCount = await new Promise((resolve, reject) => {
+        db.remove({ _id: { $in: ids } }, { multi: true }, (err, count) => {
+          if (err) reject(err);
+          else resolve(count || 0);
+        });
+      });
+
+      totalRemoved += removedCount;
+      if (removedCount === 0) break;
+    }
+
+    if (totalRemoved > 0) {
+      console.log(`[DB] Purged ${totalRemoved} logs older than ${days} days (before ${cutoffDate})`);
+      cache.flush(); // ล้างแคชที่อาจอ้างอิงข้อมูลเก่าที่ถูกลบไปแล้ว
+      if (db.persistence && typeof db.persistence.compactDatafile === 'function') {
+        db.persistence.compactDatafile();
       }
-      console.log(`[DB] Purged ${numRemoved} logs older than ${days} days (before ${cutoffDate})`);
-      resolve(numRemoved);
-    });
-  });
+    }
+  } catch (err) {
+    console.error('[DB] Purge old records warning:', err.message);
+  }
+
+  return totalRemoved;
 }
 
 // ทำการลบข้อมูลที่เก่ากว่าที่กำหนดโดยอัตโนมัติวันละ 1 ครั้ง
-purgeOldRecords().catch(err => console.error('[DB] Initial auto-purge error:', err.message || err));
+purgeOldRecords().catch(err => console.error('[DB] Initial auto-purge warning:', err.message || err));
 setInterval(() => {
-  purgeOldRecords().catch(err => console.error('[DB] Scheduled auto-purge error:', err.message || err));
+  purgeOldRecords().catch(err => console.error('[DB] Scheduled auto-purge warning:', err.message || err));
 }, 24 * 60 * 60 * 1000);
 
 module.exports = {
@@ -508,6 +661,8 @@ module.exports = {
   getSessionEnergy,
   getAnalyticsLogs,
   getSohAndEfficiencyData,
-  purgeOldRecords
+  purgeOldRecords,
+  warmupCache,
+  cache
 };
 

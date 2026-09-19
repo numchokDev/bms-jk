@@ -1292,6 +1292,129 @@ function selectMinMaxCellsOnly() {
 // ============================================================
 // SOH & ROUND-TRIP EFFICIENCY DATA FUNCTIONS
 // ============================================================
+let currentEffScope = 'all';
+let latestSohEfficiencyData = null;
+
+function applyEfficiencyMetrics(scope) {
+  if (scope) currentEffScope = scope;
+  const isMonth = currentEffScope === 'month';
+  const data = latestSohEfficiencyData;
+
+  const btnScopeAll = document.getElementById('btn-eff-scope-all');
+  const btnScopeMonth = document.getElementById('btn-eff-scope-month');
+  if (btnScopeAll) btnScopeAll.classList.toggle('active', !isMonth);
+  if (btnScopeMonth) btnScopeMonth.classList.toggle('active', isMonth);
+
+  const elDesc = document.getElementById('eff-scope-desc');
+  const elLblIn = document.getElementById('lbl-eff-in');
+  const elLblOut = document.getElementById('lbl-eff-out');
+  const elLblEff = document.getElementById('lbl-eff-percent');
+
+  if (isMonth) {
+    if (elDesc) elDesc.innerHTML = `📊 ขอบเขตข้อมูล: <strong>เฉพาะเดือนปัจจุบัน (This Month)</strong>`;
+    if (elLblIn) elLblIn.textContent = 'พลังงานชาร์จเข้าเดือนนี้ (Energy In):';
+    if (elLblOut) elLblOut.textContent = 'พลังงานจ่ายออกเดือนนี้ (Energy Out):';
+    if (elLblEff) elLblEff.textContent = 'ประสิทธิภาพเดือนนี้ (Efficiency):';
+  } else {
+    if (elDesc) elDesc.innerHTML = `📊 ขอบเขตข้อมูล: <strong>สะสมทั้งหมดตลอดประวัติ (All-Time Total)</strong>`;
+    if (elLblIn) elLblIn.textContent = 'พลังงานชาร์จเข้าสะสมทั้งหมด (Energy In):';
+    if (elLblOut) elLblOut.textContent = 'พลังงานจ่ายออกสะสมทั้งหมด (Energy Out):';
+    if (elLblEff) elLblEff.textContent = 'ประสิทธิภาพรวมตลอดการใช้งาน (Efficiency):';
+  }
+
+  if (!data) return;
+
+  const totalChargeKWh = data.totalChargeKWh ?? data.efficiency?.totalChargeKWh ?? 0;
+  const totalDischargeKWh = data.totalDischargeKWh ?? data.efficiency?.totalDischargeKWh ?? 0;
+  const rateVal = (typeof data.chargeRateThb === 'number' && data.chargeRateThb > 0)
+    ? data.chargeRateThb
+    : ((typeof data.electricityRateThb === 'number' && data.electricityRateThb > 0) ? data.electricityRateThb : 4.5);
+
+  const totalChargeCostThb = (typeof data.totalChargeCostThb === 'number' && data.totalChargeCostThb > 0)
+    ? data.totalChargeCostThb
+    : Math.round(totalChargeKWh * rateVal * 100) / 100;
+
+  const totalDischargeValueThb = (typeof data.totalDischargeValueThb === 'number' && data.totalDischargeValueThb > 0)
+    ? data.totalDischargeValueThb
+    : Math.round(totalDischargeKWh * rateVal * 100) / 100;
+
+  const lossKWh = Math.max(0, totalChargeKWh - totalDischargeKWh);
+  const totalLossCostThb = (typeof data.totalLossCostThb === 'number' && data.totalLossCostThb > 0)
+    ? data.totalLossCostThb
+    : Math.round(lossKWh * rateVal * 100) / 100;
+
+  // Fallback: คำนวณยอดเดือนนี้สดๆ จาก dailyTable หาก Backend ยังไม่ได้ส่งมา
+  let mData = data.thisMonth;
+  if (!mData || !mData.chargeKWh) {
+    const now = new Date();
+    const curYearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    let mC = 0, mD = 0, mCount = 0;
+    if (Array.isArray(data.dailyTable)) {
+      data.dailyTable.forEach(r => {
+        if (r.date && r.date.startsWith(curYearMonth)) {
+          mC += (r.chargeKWh || 0);
+          mD += (r.dischargeKWh || 0);
+          mCount++;
+        }
+      });
+    }
+    mC = Math.round(mC * 1000) / 1000;
+    mD = Math.round(mD * 1000) / 1000;
+    const mEff = mC > 0.1 ? Math.min(100, Math.round((mD / mC) * 1000) / 10) : 94.2;
+    const mLoss = Math.max(0, Math.round((mC - mD) * 1000) / 1000);
+    mData = {
+      monthKey: curYearMonth,
+      daysCount: mCount,
+      chargeKWh: mC,
+      dischargeKWh: mD,
+      efficiencyPercent: mEff,
+      lossKWh: mLoss,
+      chargeCostThb: Math.round(mC * rateVal * 100) / 100,
+      dischargeValueThb: Math.round(mD * rateVal * 100) / 100,
+      lossCostThb: Math.round(mLoss * rateVal * 100) / 100
+    };
+  }
+
+  const cKWh = isMonth ? (mData.chargeKWh ?? 0) : totalChargeKWh;
+  const dKWh = isMonth ? (mData.dischargeKWh ?? 0) : totalDischargeKWh;
+  const cThb = isMonth ? (mData.chargeCostThb ?? Math.round(cKWh * rateVal * 100) / 100) : totalChargeCostThb;
+  const dThb = isMonth ? (mData.dischargeValueThb ?? Math.round(dKWh * rateVal * 100) / 100) : totalDischargeValueThb;
+  const eff = isMonth ? (mData.efficiencyPercent ?? 0) : (data.efficiencyPercent ?? 0);
+  const lCost = isMonth ? (mData.lossCostThb ?? Math.round(Math.max(0, cKWh - dKWh) * rateVal * 100) / 100) : totalLossCostThb;
+
+  const elEnergyIn = document.getElementById('eff-energy-in');
+  const elEnergyOut = document.getElementById('eff-energy-out');
+  const elEffPercent = document.getElementById('eff-percent');
+  const elCostIn = document.getElementById('eff-cost-in');
+  const elCostOut = document.getElementById('eff-cost-out');
+  const elCostLoss = document.getElementById('eff-cost-loss');
+  const elRateBadge = document.getElementById('eff-rate-badge');
+
+  if (elEnergyIn) elEnergyIn.textContent = `${cKWh.toFixed(2)} kWh`;
+  if (elEnergyOut) elEnergyOut.textContent = `${dKWh.toFixed(2)} kWh`;
+  if (elCostIn) elCostIn.textContent = `≈ ฿${cThb.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  if (elCostOut) elCostOut.textContent = `≈ ฿${dThb.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  if (elEffPercent) elEffPercent.textContent = `${eff.toFixed(1)}%`;
+  if (elCostLoss) elCostLoss.textContent = `สูญเสีย ≈ ฿${lCost.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  if (elRateBadge) elRateBadge.textContent = `${rateVal.toFixed(2)} ฿/kWh`;
+
+  if (isMonth) {
+    if (elDesc) elDesc.innerHTML = `📊 ขอบเขตข้อมูล: <strong>เฉพาะเดือนปัจจุบัน (${mData.monthKey || 'This Month'} รวม ${mData.daysCount || 0} วัน)</strong>`;
+  } else {
+    const totalDays = data.totalDaysRecorded || (data.dailyTable ? data.dailyTable.length : 0);
+    if (elDesc) elDesc.innerHTML = `📊 ขอบเขตข้อมูล: <strong>สะสมทั้งหมดตลอดประวัติ (All-Time Total รวม ${totalDays} วันที่บันทึก)</strong>`;
+  }
+}
+
+function setEfficiencyScope(scope) {
+  currentEffScope = scope || 'all';
+  applyEfficiencyMetrics(currentEffScope);
+}
+
+// Global exposure for inline HTML onclick attributes
+window.setEfficiencyScope = setEfficiencyScope;
+window.applyEfficiencyMetrics = applyEfficiencyMetrics;
+
 async function loadSohEfficiencyData() {
   try {
     const res = await fetch('/api/logs/soh-efficiency');
@@ -1332,18 +1455,16 @@ async function loadSohEfficiencyData() {
     if (elSohLifespan) elSohLifespan.textContent = `~${lifespanYears.toFixed(1)} ปี`;
     if (elSohLifespanSub) elSohLifespanSub.textContent = `จนถึงระดับ SOH ${eolSohPercent}%`;
 
-    // Efficiency metrics
-    const elEnergyIn = document.getElementById('eff-energy-in');
-    const elEnergyOut = document.getElementById('eff-energy-out');
-    const elEffPercent = document.getElementById('eff-percent');
     const elHeatVal = document.getElementById('loss-heat-val');
     const elHeatBar = document.getElementById('loss-heat-bar');
     const elResVal = document.getElementById('loss-resistance-val');
     const elResBar = document.getElementById('loss-resistance-bar');
 
-    if (elEnergyIn) elEnergyIn.textContent = `${data.totalChargeKWh.toFixed(2)} kWh`;
-    if (elEnergyOut) elEnergyOut.textContent = `${data.totalDischargeKWh.toFixed(2)} kWh`;
-    if (elEffPercent) elEffPercent.textContent = `${data.efficiencyPercent.toFixed(1)}%`;
+    latestSohEfficiencyData = data;
+
+    // แสดงผล Efficiency ตาม Scope ปัจจุบัน
+    applyEfficiencyMetrics(currentEffScope);
+
     if (elHeatVal) elHeatVal.textContent = `~${data.heatLossPercent.toFixed(1)}%`;
     if (elResVal) elResVal.textContent = `~${data.resistanceLossPercent.toFixed(1)}%`;
 
@@ -1351,21 +1472,44 @@ async function loadSohEfficiencyData() {
     if (elResBar && data.lossPercent > 0) elResBar.style.width = `${(data.resistanceLossPercent / data.lossPercent) * 100}%`;
 
     // Daily Table
+    const rateVal = (typeof data.chargeRateThb === 'number' && data.chargeRateThb > 0)
+      ? data.chargeRateThb
+      : ((typeof data.electricityRateThb === 'number' && data.electricityRateThb > 0) ? data.electricityRateThb : 4.5);
+
     const tbody = document.getElementById('soh-daily-tbody');
     if (tbody) {
       if (!data.dailyTable || data.dailyTable.length === 0) {
         tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding: 20px;">ยังไม่มีข้อมูลประวัติรายวัน</td></tr>`;
       } else {
-        tbody.innerHTML = data.dailyTable.map(row => `
+        tbody.innerHTML = data.dailyTable.map(row => {
+          const cKWh = row.chargeKWh ?? 0;
+          const dKWh = row.dischargeKWh ?? 0;
+          const lKWh = row.lossKWh ?? 0;
+          const eff = row.efficiencyPercent ?? row.efficiency ?? 0;
+          const cThb = row.chargeCostThb ?? (cKWh * rateVal);
+          const dThb = row.dischargeValueThb ?? (dKWh * rateVal);
+          const lThb = row.lossCostThb ?? (lKWh * rateVal);
+
+          return `
           <tr>
             <td><strong>${row.date}</strong></td>
-            <td><span class="text-green">${row.chargeKWh.toFixed(3)} kWh</span></td>
-            <td><span class="text-blue">${row.dischargeKWh.toFixed(3)} kWh</span></td>
-            <td><strong class="text-gold">${row.efficiency.toFixed(1)}%</strong></td>
-            <td><span style="color:#f87171;">-${row.lossKWh.toFixed(3)} kWh</span></td>
+            <td>
+              <span class="text-green">${cKWh.toFixed(3)} kWh</span>
+              <div style="font-size:0.75rem; color:rgba(74, 222, 128, 0.85); font-family:'JetBrains Mono',monospace;">≈ ฿${cThb.toFixed(2)}</div>
+            </td>
+            <td>
+              <span class="text-blue">${dKWh.toFixed(3)} kWh</span>
+              <div style="font-size:0.75rem; color:rgba(56, 189, 248, 0.85); font-family:'JetBrains Mono',monospace;">≈ ฿${dThb.toFixed(2)}</div>
+            </td>
+            <td><strong class="text-gold">${eff.toFixed(1)}%</strong></td>
+            <td>
+              <span style="color:#f87171;">-${lKWh.toFixed(3)} kWh</span>
+              <div style="font-size:0.75rem; color:rgba(248, 113, 113, 0.85); font-family:'JetBrains Mono',monospace;">≈ ฿${lThb.toFixed(2)}</div>
+            </td>
             <td><span class="prot-badge ok" style="padding: 2px 8px; font-size:0.75rem;">ปกติ</span></td>
           </tr>
-        `).join('');
+        `;
+        }).join('');
       }
     }
   } catch (e) {
@@ -1373,11 +1517,20 @@ async function loadSohEfficiencyData() {
   }
 }
 
+// Attach event listeners when DOM is loaded
+document.addEventListener('DOMContentLoaded', () => {
+  const btnAll = document.getElementById('btn-eff-scope-all');
+  const btnMonth = document.getElementById('btn-eff-scope-month');
+  if (btnAll) btnAll.addEventListener('click', () => setEfficiencyScope('all'));
+  if (btnMonth) btnMonth.addEventListener('click', () => setEfficiencyScope('month'));
+});
+
 // App Startup
 loadAvailablePorts().then(() => {
   connectWebSocket();
   initAnalyticsUI();
   initAnalyticsChart();
+  loadSohEfficiencyData(); // Pre-load SOH & Efficiency so tab is immediately filled
 });
 
 

@@ -164,8 +164,10 @@ async function pollBmsModbus() {
     };
 
     if (packV > 0 || packSOC > 0) {
+      state.isRestoredFromDb = false;
       state.bmsData = parsedData;
       const now = Date.now();
+      state.lastCachedAt = now;
       if (!state.bmsFirstDataTime) state.bmsFirstDataTime = now;
       state.bmsLastDataTime = now;
       broadcast(getCurrentState());
