@@ -88,7 +88,7 @@ async function pollBmsModbus() {
     const packSOC = rtRegs2 ? (rtRegs2[11] || 0) : 0;
 
     // ---- Capacity ----
-    let packRateCap = 100;
+    let packRateCap = config.BATTERY_NOMINAL_CAP_AH || 100;
     let packBalCap = 0;
     if (statusRegs) {
       const rawFullCap = regsToInt32(statusRegs[6], statusRegs[7]);

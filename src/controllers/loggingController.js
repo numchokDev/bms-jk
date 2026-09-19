@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../services/dbService');
+const config = require('../config');
 
 /**
  * GET /api/logs
@@ -97,22 +98,32 @@ router.get('/soh-efficiency', async (req, res) => {
     const { getCurrentState } = require('../state');
     const bmsState = getCurrentState();
 
-    const nominalCap = bmsState.packRateCap || 100;
+    const nominalCap = bmsState.packRateCap || config.BATTERY_NOMINAL_CAP_AH || 100;
     const cycleCap = bmsState.packCycleCap || 0;
     const cycles = bmsState.packNumberCycles || 18;
 
+    const maxCycles = config.BATTERY_MAX_CYCLES || 3000;
+    const eolSoh = config.BATTERY_EOL_SOH || 70;
+    const cyclesPerMonth = config.BATTERY_CYCLES_PER_MONTH || 15;
+
     // คำนวณ SOH% จาก Nominal Capacity & Cycle Count
-    const rawDegradationFromCycles = cycles * 0.025;
-    const sohPercent = Math.min(100, Math.max(70, Math.round((100 - rawDegradationFromCycles) * 10) / 10));
+    const degradationPerCycle = (100 - eolSoh) / maxCycles;
+    const rawDegradationFromCycles = cycles * degradationPerCycle;
+    const sohPercent = Math.min(100, Math.max(eolSoh, Math.round((100 - rawDegradationFromCycles) * 10) / 10));
     const degradationPercent = Math.round((100 - sohPercent) * 10) / 10;
 
-    // คำนวณอัตราการเสื่อมต่อเดือน (% / month)
-    const monthsInService = Math.max(1, Math.round((cycles / 15) * 10) / 10);
-    const degradationRatePerMonth = Math.round((degradationPercent / monthsInService) * 100) / 100 || 0.35;
+    // คำนวณอัตราการเสื่อมมาตรฐานต่อเดือนจากค่า config / .env (สำหรับกรณีแบตเตอรี่ใหม่หรือรอบชาร์จน้อย)
+    const defaultRatePerMonth = degradationPerCycle * cyclesPerMonth;
 
-    // ประมาณการอายุการใช้งานคงเหลือ (นับจนถึงจุด 70% SOH)
-    const remainingSohSpan = Math.max(0, sohPercent - 70);
-    const estimatedRemainingMonths = degradationRatePerMonth > 0 ? Math.round(remainingSohSpan / degradationRatePerMonth) : 120;
+    // คำนวณอัตราการเสื่อมต่อเดือน (% / month) จากการใช้งานจริง
+    const monthsInService = Math.max(1, Math.round((cycles / cyclesPerMonth) * 10) / 10);
+    const calculatedRate = degradationPercent > 0 ? (degradationPercent / monthsInService) : 0;
+    const effectiveRatePerMonth = calculatedRate > 0 ? calculatedRate : defaultRatePerMonth;
+    const degradationRatePerMonth = Math.round(effectiveRatePerMonth * 1000) / 1000;
+
+    // ประมาณการอายุการใช้งานคงเหลือ (นับจนถึงจุด eolSoh% SOH)
+    const remainingSohSpan = Math.max(0, sohPercent - eolSoh);
+    const estimatedRemainingMonths = effectiveRatePerMonth > 0 ? Math.round(remainingSohSpan / effectiveRatePerMonth) : 120;
     const estimatedRemainingYears = Math.round((estimatedRemainingMonths / 12) * 10) / 10;
 
     const measuredCapAh = Math.round((nominalCap * (sohPercent / 100)) * 10) / 10;
@@ -122,7 +133,7 @@ router.get('/soh-efficiency', async (req, res) => {
     if (sohPercent < 80) {
       healthStatus = 'ต้องเฝ้าระวัง (Warning)';
       healthColor = 'var(--color-amber)';
-    } else if (sohPercent < 70) {
+    } else if (sohPercent < eolSoh) {
       healthStatus = 'เสื่อมสภาพมาก (Critical)';
       healthColor = 'var(--color-rose)';
     }
@@ -130,6 +141,20 @@ router.get('/soh-efficiency', async (req, res) => {
     const effData = await db.getSohAndEfficiencyData();
 
     res.json({
+      success: true,
+      sohPercent,
+      nominalCapacityAh: nominalCap,
+      actualCapacityAh: measuredCapAh,
+      degradationPercent,
+      degradationRatePerMonth,
+      cycleCount: cycles,
+      maxCycles,
+      eolSohPercent: eolSoh,
+      cyclesPerMonth,
+      monthsInService,
+      remainingLifespanYears: estimatedRemainingYears,
+      healthStatus,
+      healthColor,
       soh: {
         sohPercent,
         nominalCapAh: nominalCap,
@@ -137,12 +162,16 @@ router.get('/soh-efficiency', async (req, res) => {
         degradationPercent,
         degradationRatePerMonth,
         cycleCount: cycles,
+        maxCycles,
+        eolSohPercent: eolSoh,
+        cyclesPerMonth,
         monthsInService,
         estimatedRemainingYears,
         healthStatus,
         healthColor
       },
-      efficiency: effData
+      efficiency: effData,
+      ...effData
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

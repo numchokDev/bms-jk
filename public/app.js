@@ -1302,20 +1302,35 @@ async function loadSohEfficiencyData() {
     const elSohPercent = document.getElementById('soh-percent-val');
     const elSohStatus = document.getElementById('soh-status-badge');
     const elSohCap = document.getElementById('soh-capacity-val');
+    const elSohNominalSub = document.getElementById('soh-nominal-sub');
     const elSohDeg = document.getElementById('soh-degradation-val');
     const elSohCycles = document.getElementById('soh-cycles-val');
+    const elSohCyclesSub = document.getElementById('soh-cycles-sub');
     const elSohLifespan = document.getElementById('soh-lifespan-val');
+    const elSohLifespanSub = document.getElementById('soh-lifespan-sub');
 
-    if (elSohPercent) elSohPercent.textContent = `${data.sohPercent}%`;
+    const sohPercent = data.sohPercent ?? data.soh?.sohPercent ?? 100;
+    const actualCap = data.actualCapacityAh ?? data.soh?.measuredCapAh ?? 0;
+    const nominalCap = data.nominalCapacityAh ?? data.soh?.nominalCapAh ?? 100;
+    const degRate = data.degradationRatePerMonth ?? data.soh?.degradationRatePerMonth ?? 0;
+    const cycleCount = data.cycleCount ?? data.soh?.cycleCount ?? 0;
+    const maxCycles = data.maxCycles ?? data.soh?.maxCycles ?? 3000;
+    const lifespanYears = data.remainingLifespanYears ?? data.soh?.estimatedRemainingYears ?? 0;
+    const eolSohPercent = data.eolSohPercent ?? data.soh?.eolSohPercent ?? 70;
+
+    if (elSohPercent) elSohPercent.textContent = `${sohPercent}%`;
     if (elSohStatus) {
-      if (data.sohPercent >= 90) elSohStatus.textContent = '🟢 สถานะดีเยี่ยม (Excellent)';
-      else if (data.sohPercent >= 80) elSohStatus.textContent = '🟡 สถานะปกติ (Normal)';
+      if (sohPercent >= 90) elSohStatus.textContent = '🟢 สถานะดีเยี่ยม (Excellent)';
+      else if (sohPercent >= 80) elSohStatus.textContent = '🟡 สถานะปกติ (Normal)';
       else elSohStatus.textContent = '🔴 เริ่มเสื่อมถอย (Degraded)';
     }
-    if (elSohCap) elSohCap.textContent = `${data.actualCapacityAh.toFixed(1)} Ah / ${data.nominalCapacityAh.toFixed(1)} Ah`;
-    if (elSohDeg) elSohDeg.textContent = `${data.degradationRatePerMonth.toFixed(2)}% / เดือน`;
-    if (elSohCycles) elSohCycles.textContent = `${data.cycleCount} รอบ`;
-    if (elSohLifespan) elSohLifespan.textContent = `~${data.remainingLifespanYears.toFixed(1)} ปี`;
+    if (elSohCap) elSohCap.textContent = `${actualCap.toFixed(1)} Ah / ${nominalCap.toFixed(1)} Ah`;
+    const degStr = (degRate > 0 && degRate < 0.05) ? degRate.toFixed(3) : degRate.toFixed(2);
+    if (elSohDeg) elSohDeg.textContent = `${degStr}% / เดือน`;
+    if (elSohCycles) elSohCycles.textContent = `${cycleCount} รอบ`;
+    if (elSohCyclesSub) elSohCyclesSub.textContent = `รอบชาร์จสะสม (Max ${maxCycles})`;
+    if (elSohLifespan) elSohLifespan.textContent = `~${lifespanYears.toFixed(1)} ปี`;
+    if (elSohLifespanSub) elSohLifespanSub.textContent = `จนถึงระดับ SOH ${eolSohPercent}%`;
 
     // Efficiency metrics
     const elEnergyIn = document.getElementById('eff-energy-in');

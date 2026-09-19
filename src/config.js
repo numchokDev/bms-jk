@@ -20,6 +20,12 @@ module.exports = {
   DB_PATH: process.env.DB_PATH || path.join(__dirname, '..', 'data', 'bms_log.db'),
   LOG_RETENTION_DAYS: retentionDaysStr ? parseInt(retentionDaysStr, 10) : 30,
 
+  // Battery & Health Configuration
+  BATTERY_NOMINAL_CAP_AH: process.env.BATTERY_NOMINAL_CAP_AH ? parseFloat(process.env.BATTERY_NOMINAL_CAP_AH) : 100,
+  BATTERY_MAX_CYCLES: process.env.BATTERY_MAX_CYCLES ? parseInt(process.env.BATTERY_MAX_CYCLES, 10) : 3000,
+  BATTERY_EOL_SOH: process.env.BATTERY_EOL_SOH ? parseFloat(process.env.BATTERY_EOL_SOH) : 70,
+  BATTERY_CYCLES_PER_MONTH: process.env.BATTERY_CYCLES_PER_MONTH ? parseFloat(process.env.BATTERY_CYCLES_PER_MONTH) : 15,
+
   // Register addresses
   REG_CELL_VOLTAGE: 0x1200,  // Cell voltages (x20 regs)
   REG_PACK_STATS: 0x1240,    // Pack stats + wire resistance
