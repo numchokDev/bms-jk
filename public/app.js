@@ -1309,17 +1309,20 @@ function applyEfficiencyMetrics(scope) {
   const elLblIn = document.getElementById('lbl-eff-in');
   const elLblOut = document.getElementById('lbl-eff-out');
   const elLblEff = document.getElementById('lbl-eff-percent');
+  const elLblCo2 = document.getElementById('lbl-eff-co2');
 
   if (isMonth) {
     if (elDesc) elDesc.innerHTML = `📊 ขอบเขตข้อมูล: <strong>เฉพาะเดือนปัจจุบัน (This Month)</strong>`;
     if (elLblIn) elLblIn.textContent = 'พลังงานชาร์จเข้าเดือนนี้ (Energy In):';
     if (elLblOut) elLblOut.textContent = 'พลังงานจ่ายออกเดือนนี้ (Energy Out):';
     if (elLblEff) elLblEff.textContent = 'ประสิทธิภาพเดือนนี้ (Efficiency):';
+    if (elLblCo2) elLblCo2.textContent = '🌱 CO2 ที่ถูกแทนที่เดือนนี้ (Displaced CO2):';
   } else {
     if (elDesc) elDesc.innerHTML = `📊 ขอบเขตข้อมูล: <strong>สะสมทั้งหมดตลอดประวัติ (All-Time Total)</strong>`;
     if (elLblIn) elLblIn.textContent = 'พลังงานชาร์จเข้าสะสมทั้งหมด (Energy In):';
     if (elLblOut) elLblOut.textContent = 'พลังงานจ่ายออกสะสมทั้งหมด (Energy Out):';
     if (elLblEff) elLblEff.textContent = 'ประสิทธิภาพรวมตลอดการใช้งาน (Efficiency):';
+    if (elLblCo2) elLblCo2.textContent = '🌱 CO2 ที่ถูกแทนที่สะสมทั้งหมด (Displaced CO2):';
   }
 
   if (!data) return;
@@ -1329,6 +1332,9 @@ function applyEfficiencyMetrics(scope) {
   const rateVal = (typeof data.chargeRateThb === 'number' && data.chargeRateThb > 0)
     ? data.chargeRateThb
     : ((typeof data.electricityRateThb === 'number' && data.electricityRateThb > 0) ? data.electricityRateThb : 4.5);
+  const co2Factor = (typeof data.co2EmissionFactor === 'number' && data.co2EmissionFactor > 0)
+    ? data.co2EmissionFactor
+    : 0.4999;
 
   const totalChargeCostThb = (typeof data.totalChargeCostThb === 'number' && data.totalChargeCostThb > 0)
     ? data.totalChargeCostThb
@@ -1342,6 +1348,13 @@ function applyEfficiencyMetrics(scope) {
   const totalLossCostThb = (typeof data.totalLossCostThb === 'number' && data.totalLossCostThb > 0)
     ? data.totalLossCostThb
     : Math.round(lossKWh * rateVal * 100) / 100;
+
+  const totalCo2Kg = (typeof data.totalCo2Kg === 'number')
+    ? data.totalCo2Kg
+    : Math.round(totalDischargeKWh * co2Factor * 1000) / 1000;
+  const totalTreesEquivalent = (typeof data.totalTreesEquivalent === 'number')
+    ? data.totalTreesEquivalent
+    : Math.round((totalCo2Kg / 10) * 10) / 10;
 
   // Fallback: คำนวณยอดเดือนนี้สดๆ จาก dailyTable หาก Backend ยังไม่ได้ส่งมา
   let mData = data.thisMonth;
@@ -1362,6 +1375,8 @@ function applyEfficiencyMetrics(scope) {
     mD = Math.round(mD * 1000) / 1000;
     const mEff = mC > 0.1 ? Math.min(100, Math.round((mD / mC) * 1000) / 10) : 94.2;
     const mLoss = Math.max(0, Math.round((mC - mD) * 1000) / 1000);
+    const mCo2 = Math.round(mD * co2Factor * 1000) / 1000;
+    const mTrees = Math.round((mCo2 / 10) * 10) / 10;
     mData = {
       monthKey: curYearMonth,
       daysCount: mCount,
@@ -1371,7 +1386,9 @@ function applyEfficiencyMetrics(scope) {
       lossKWh: mLoss,
       chargeCostThb: Math.round(mC * rateVal * 100) / 100,
       dischargeValueThb: Math.round(mD * rateVal * 100) / 100,
-      lossCostThb: Math.round(mLoss * rateVal * 100) / 100
+      lossCostThb: Math.round(mLoss * rateVal * 100) / 100,
+      co2Kg: mCo2,
+      treesEquivalent: mTrees
     };
   }
 
@@ -1381,6 +1398,8 @@ function applyEfficiencyMetrics(scope) {
   const dThb = isMonth ? (mData.dischargeValueThb ?? Math.round(dKWh * rateVal * 100) / 100) : totalDischargeValueThb;
   const eff = isMonth ? (mData.efficiencyPercent ?? 0) : (data.efficiencyPercent ?? 0);
   const lCost = isMonth ? (mData.lossCostThb ?? Math.round(Math.max(0, cKWh - dKWh) * rateVal * 100) / 100) : totalLossCostThb;
+  const co2Val = isMonth ? (mData.co2Kg ?? Math.round(dKWh * co2Factor * 1000) / 1000) : totalCo2Kg;
+  const treesVal = isMonth ? (mData.treesEquivalent ?? Math.round((co2Val / 10) * 10) / 10) : totalTreesEquivalent;
 
   const elEnergyIn = document.getElementById('eff-energy-in');
   const elEnergyOut = document.getElementById('eff-energy-out');
@@ -1388,7 +1407,10 @@ function applyEfficiencyMetrics(scope) {
   const elCostIn = document.getElementById('eff-cost-in');
   const elCostOut = document.getElementById('eff-cost-out');
   const elCostLoss = document.getElementById('eff-cost-loss');
+  const elCo2Val = document.getElementById('eff-co2-val');
+  const elTreeVal = document.getElementById('eff-tree-val');
   const elRateBadge = document.getElementById('eff-rate-badge');
+  const elCo2Badge = document.getElementById('eff-co2-badge');
 
   if (elEnergyIn) elEnergyIn.textContent = `${cKWh.toFixed(2)} kWh`;
   if (elEnergyOut) elEnergyOut.textContent = `${dKWh.toFixed(2)} kWh`;
@@ -1396,7 +1418,20 @@ function applyEfficiencyMetrics(scope) {
   if (elCostOut) elCostOut.textContent = `≈ ฿${dThb.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   if (elEffPercent) elEffPercent.textContent = `${eff.toFixed(1)}%`;
   if (elCostLoss) elCostLoss.textContent = `สูญเสีย ≈ ฿${lCost.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  
+  if (elCo2Val) {
+    if (co2Val >= 1000) {
+      elCo2Val.textContent = `${co2Val.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kgCO2 (${(co2Val / 1000).toFixed(3)} ตัน)`;
+    } else {
+      elCo2Val.textContent = `${co2Val.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kgCO2`;
+    }
+  }
+  if (elTreeVal) {
+    elTreeVal.textContent = `≈ 🌲 เทียบเท่าปลูกต้นไม้ ${treesVal.toLocaleString('th-TH', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} ต้น`;
+  }
+
   if (elRateBadge) elRateBadge.textContent = `${rateVal.toFixed(2)} ฿/kWh`;
+  if (elCo2Badge) elCo2Badge.textContent = `🌱 ${co2Factor.toFixed(4)} kgCO2/kWh`;
 
   if (isMonth) {
     if (elDesc) elDesc.innerHTML = `📊 ขอบเขตข้อมูล: <strong>เฉพาะเดือนปัจจุบัน (${mData.monthKey || 'This Month'} รวม ${mData.daysCount || 0} วัน)</strong>`;
@@ -1475,11 +1510,14 @@ async function loadSohEfficiencyData() {
     const rateVal = (typeof data.chargeRateThb === 'number' && data.chargeRateThb > 0)
       ? data.chargeRateThb
       : ((typeof data.electricityRateThb === 'number' && data.electricityRateThb > 0) ? data.electricityRateThb : 4.5);
+    const co2Factor = (typeof data.co2EmissionFactor === 'number' && data.co2EmissionFactor > 0)
+      ? data.co2EmissionFactor
+      : 0.4999;
 
     const tbody = document.getElementById('soh-daily-tbody');
     if (tbody) {
       if (!data.dailyTable || data.dailyTable.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding: 20px;">ยังไม่มีข้อมูลประวัติรายวัน</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding: 20px;">ยังไม่มีข้อมูลประวัติรายวัน</td></tr>`;
       } else {
         tbody.innerHTML = data.dailyTable.map(row => {
           const cKWh = row.chargeKWh ?? 0;
@@ -1489,6 +1527,8 @@ async function loadSohEfficiencyData() {
           const cThb = row.chargeCostThb ?? (cKWh * rateVal);
           const dThb = row.dischargeValueThb ?? (dKWh * rateVal);
           const lThb = row.lossCostThb ?? (lKWh * rateVal);
+          const co2Kg = (typeof row.co2Kg === 'number') ? row.co2Kg : Math.round(dKWh * co2Factor * 1000) / 1000;
+          const trees = (typeof row.treesEquivalent === 'number') ? row.treesEquivalent : Math.round((co2Kg / 10) * 10) / 10;
 
           return `
           <tr>
@@ -1505,6 +1545,10 @@ async function loadSohEfficiencyData() {
             <td>
               <span style="color:#f87171;">-${lKWh.toFixed(3)} kWh</span>
               <div style="font-size:0.75rem; color:rgba(248, 113, 113, 0.85); font-family:'JetBrains Mono',monospace;">≈ ฿${lThb.toFixed(2)}</div>
+            </td>
+            <td>
+              <span class="text-emerald" style="font-weight:600;">+${co2Kg.toFixed(3)} kg</span>
+              <div style="font-size:0.75rem; color:rgba(52, 211, 153, 0.85); font-family:'JetBrains Mono',monospace;">≈ 🌲 ${trees.toFixed(1)} ต้น</div>
             </td>
             <td><span class="prot-badge ok" style="padding: 2px 8px; font-size:0.75rem;">ปกติ</span></td>
           </tr>

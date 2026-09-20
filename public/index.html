@@ -546,9 +546,19 @@
                 <span class="eff-cost-sub text-loss-sub" id="eff-cost-loss">สูญเสีย ≈ ฿0.00</span>
               </div>
             </div>
+            <div class="eff-stat-item eff-co2-item">
+              <span class="eff-stat-label" id="lbl-eff-co2">🌱 CO2 ที่ถูกแทนที่สะสมทั้งหมด (Displaced CO2):</span>
+              <div class="eff-stat-val-group">
+                <strong class="eff-stat-val text-emerald" id="eff-co2-val">-- kgCO2</strong>
+                <span class="eff-cost-sub text-emerald-sub" id="eff-tree-val">≈ 🌲 เทียบเท่าปลูกต้นไม้ -- ต้น</span>
+              </div>
+            </div>
             <div class="eff-stat-item eff-rate-item">
-              <span class="eff-stat-label">อัตราค่าไฟที่ตั้งไว้ (.env):</span>
-              <span class="eff-rate-badge" id="eff-rate-badge">4.50 ฿/kWh</span>
+              <span class="eff-stat-label">ค่าคงที่อ้างอิง (.env):</span>
+              <div class="eff-badges-wrapper">
+                <span class="eff-rate-badge" id="eff-rate-badge" title="อัตราค่าไฟฟ้า">4.50 ฿/kWh</span>
+                <span class="eff-co2-badge" id="eff-co2-badge" title="ค่าสัมประสิทธิ์การปล่อยก๊าซเรือนกระจกเฉลี่ย (Thailand Grid Emission Factor)">0.4999 kgCO2/kWh</span>
+              </div>
             </div>
           </div>
 
@@ -579,6 +589,15 @@
                 </div>
               </div>
             </div>
+
+            <!-- Eco Carbon Offset Banner -->
+            <div class="eff-eco-banner">
+              <div class="eff-eco-icon">🌱</div>
+              <div class="eff-eco-info">
+                <div class="eff-eco-title">การชดเชยคาร์บอน (Carbon Offset / Clean Energy)</div>
+                <div class="eff-eco-desc">พลังงานสะอาดที่จ่ายออกถูกนำไปใช้ทดแทนไฟฟ้าจากสายส่ง ช่วยลดการปล่อยก๊าซเรือนกระจกจริง</div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -597,12 +616,13 @@
                 <th>จ่ายออก (kWh / มูลค่า)</th>
                 <th>ประสิทธิภาพ (%)</th>
                 <th>พลังงานสูญเสีย (kWh / มูลค่า)</th>
+                <th>🌱 CO2 ที่ถูกแทนที่</th>
                 <th>สถานะการทำงาน</th>
               </tr>
             </thead>
             <tbody id="soh-daily-tbody">
               <tr>
-                <td colspan="6" style="text-align:center; padding: 20px;">กำลังโหลดข้อมูล...</td>
+                <td colspan="7" style="text-align:center; padding: 20px;">กำลังโหลดข้อมูล...</td>
               </tr>
             </tbody>
           </table>

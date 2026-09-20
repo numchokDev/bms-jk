@@ -494,6 +494,7 @@ async function getSohAndEfficiencyData() {
 
   const chargeRate = config.ELECTRICITY_CHARGE_RATE_THB || config.ELECTRICITY_RATE_THB || 4.5;
   const dischargeRate = config.ELECTRICITY_DISCHARGE_RATE_THB || config.ELECTRICITY_RATE_THB || 4.5;
+  const co2EmissionFactor = config.CO2_EMISSION_FACTOR || 0.4999;
 
   const dailyTable = dailySummary.map(row => {
     const cKWh = row.chargeKWh || 0;
@@ -509,6 +510,10 @@ async function getSohAndEfficiencyData() {
     const dischargeValueThb = Math.round(dKWh * dischargeRate * 100) / 100;
     const lossCostThb = Math.round(dayLossKWh * chargeRate * 100) / 100;
 
+    // คำนวณ CO2 ที่ถูกแทนที่ (Avoided / Displaced CO2) จากพลังงานจ่ายออก (Discharge kWh)
+    const dayCo2Kg = Math.round(dKWh * co2EmissionFactor * 1000) / 1000;
+    const dayTreesEquivalent = Math.round((dayCo2Kg / 10) * 10) / 10;
+
     return {
       date: row.date,
       chargeKWh: cKWh,
@@ -518,7 +523,9 @@ async function getSohAndEfficiencyData() {
       lossKWh: dayLossKWh,
       chargeCostThb,
       dischargeValueThb,
-      lossCostThb
+      lossCostThb,
+      co2Kg: dayCo2Kg,
+      treesEquivalent: dayTreesEquivalent
     };
   });
 
@@ -533,6 +540,10 @@ async function getSohAndEfficiencyData() {
   const totalChargeCostThb = Math.round(totalChargeKWh * chargeRate * 100) / 100;
   const totalDischargeValueThb = Math.round(totalDischargeKWh * dischargeRate * 100) / 100;
   const totalLossCostThb = Math.round(overallLossKWh * chargeRate * 100) / 100;
+
+  // คำนวณ CO2 สะสมทั้งหมดที่ถูกแทนที่
+  const totalCo2Kg = Math.round(totalDischargeKWh * co2EmissionFactor * 1000) / 1000;
+  const totalTreesEquivalent = Math.round((totalCo2Kg / 10) * 10) / 10;
 
   // คำนวณแยกยอดเฉพาะเดือนปัจจุบัน (This Month)
   const nowUtc7 = new Date(Date.now() + 7 * 3600 * 1000);
@@ -559,6 +570,9 @@ async function getSohAndEfficiencyData() {
   const monthDischargeValueThb = Math.round(monthDischargeKWh * dischargeRate * 100) / 100;
   const monthLossCostThb = Math.round(monthLossKWh * chargeRate * 100) / 100;
 
+  const monthCo2Kg = Math.round(monthDischargeKWh * co2EmissionFactor * 1000) / 1000;
+  const monthTreesEquivalent = Math.round((monthCo2Kg / 10) * 10) / 10;
+
   // จำแนกสาเหตุการสูญเสียพลังงาน (~5.8% ความร้อนบอร์ด MOS + mΩ internal resistance)
   const heatLossPercent = Math.round((overallLossPercent * 0.65) * 10) / 10; // ~3.8%
   const resistanceLossPercent = Math.round((overallLossPercent * 0.35) * 10) / 10; // ~2.0%
@@ -578,6 +592,9 @@ async function getSohAndEfficiencyData() {
     totalChargeCostThb,
     totalDischargeValueThb,
     totalLossCostThb,
+    co2EmissionFactor,
+    totalCo2Kg,
+    totalTreesEquivalent,
     thisMonth: {
       monthKey: currentMonthPrefix,
       daysCount: monthDaysCount,
@@ -588,7 +605,9 @@ async function getSohAndEfficiencyData() {
       lossKWh: monthLossKWh,
       chargeCostThb: monthChargeCostThb,
       dischargeValueThb: monthDischargeValueThb,
-      lossCostThb: monthLossCostThb
+      lossCostThb: monthLossCostThb,
+      co2Kg: monthCo2Kg,
+      treesEquivalent: monthTreesEquivalent
     },
     heatLossPercent,
     resistanceLossPercent,
